@@ -1,3 +1,15 @@
+## 1.8.9 (2015-05-02)
+
+Bugfixes:
+
+  - Use RubyGems spec stubs if available (@segiddins)
+
+## 1.8.8 (2015-04-29)
+
+Bugfixes:
+
+  - Respect Gemfile sources when installing a gem present in two sources (#3585, @tmoore)
+
 ## 1.8.7 (2015-04-07)
 
 Bugfixes:
@@ -108,6 +120,19 @@ Bugfixes:
 Documentation:
 
   - add missing Gemfile global `path` explanation (@agenteo)
+
+## 1.7.15 (2015-04-29)
+
+Bugfixes:
+
+  - Respect Gemfile sources when installing a gem present in two sources (#3585, @tmoore)
+
+## 1.7.14 (2015-03-30)
+
+Bugfixes:
+
+  - Keep gems locked when updating another gem from the same source (#3250, @indirect)
+  - Don't add extra quotes around long, quoted config values (@aroben, #3338)
 
 ## 1.7.13 (2015-02-07)
 
