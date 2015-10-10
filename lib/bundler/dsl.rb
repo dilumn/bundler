@@ -13,6 +13,7 @@ module Bundler
 
     VALID_PLATFORMS = Bundler::Dependency::PLATFORM_MAP.keys.freeze
 
+    attr_reader :gemspecs
     attr_accessor :dependencies
 
     def initialize
@@ -26,6 +27,7 @@ module Bundler
       @platforms            = []
       @env                  = nil
       @ruby_version         = nil
+      @gemspecs             = []
       add_git_sources
     end
 
@@ -65,6 +67,8 @@ module Bundler
             gem dep.name, *(dep.requirement.as_list + [:type => :development])
           end
         end
+
+        @gemspecs << gemspecs.first
       when 0
         raise InvalidOption, "There are no gemspecs at #{expanded_path}."
       else
@@ -450,9 +454,9 @@ module Bundler
           m << "\n"
           m << "#{indent}from #{trace_line.gsub(/:in.*$/, "")}\n"
           m << "#{indent}-------------------------------------------\n"
-          m << "#{indent}#{    lines[line_numer - 1] }" unless first_line
-          m << "#{indicator}#{ lines[line_numer] }"
-          m << "#{indent}#{    lines[line_numer + 1] }" unless last_line
+          m << "#{indent}#{lines[line_numer - 1]}" unless first_line
+          m << "#{indicator}#{lines[line_numer]}"
+          m << "#{indent}#{lines[line_numer + 1]}" unless last_line
           m << "\n" unless m.end_with?("\n")
           m << "#{indent}-------------------------------------------\n"
         end

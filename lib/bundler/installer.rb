@@ -1,6 +1,8 @@
 require "erb"
 require "rubygems/dependency_installer"
 require "bundler/worker"
+require "bundler/installer/parallel_installer"
+require "bundler/installer/standalone"
 
 module Bundler
   class Installer < Environment
@@ -67,7 +69,7 @@ module Bundler
       install(options)
 
       lock unless Bundler.settings[:frozen]
-      generate_standalone(options[:standalone]) if options[:standalone]
+      Standalone.new(options[:standalone], @definition).generate if options[:standalone]
     end
 
     def install_gem_from_spec(spec, standalone = false, worker = 0, force = false)
@@ -176,13 +178,9 @@ module Bundler
     # installation is just SO MUCH FASTER. so we let people opt in.
     def install(options)
       force = options["force"]
-      jobs = [Bundler.settings[:jobs].to_i - 1, 1].max
-      if jobs > 1 && can_install_in_parallel?
-        require "bundler/installer/parallel_installer"
-        install_in_parallel jobs, options[:standalone], force
-      else
-        install_sequentially options[:standalone], force
-      end
+      jobs = 1
+      jobs = [Bundler.settings[:jobs].to_i - 1, 1].max if can_install_in_parallel?
+      install_in_parallel jobs, options[:standalone], force
     end
 
     def can_install_in_parallel?
@@ -190,7 +188,7 @@ module Bundler
         true
       else
         Bundler.ui.warn "Rubygems #{Gem::VERSION} is not threadsafe, so your "\
-          "gems must be installed one at a time. Upgrade to Rubygems 2.1.0 " \
+          "gems will be installed one at a time. Upgrade to Rubygems 2.1.0 " \
           "or higher to enable parallel gem installation."
         false
       end
@@ -212,57 +210,14 @@ module Bundler
       end
     end
 
-    def generate_standalone(groups)
-      standalone_path = Bundler.settings[:path]
-      bundler_path = File.join(standalone_path, "bundler")
-      FileUtils.mkdir_p(bundler_path)
-
-      paths = []
-
-      if groups.empty?
-        specs = @definition.requested_specs
-      else
-        specs = @definition.specs_for groups.map(&:to_sym)
-      end
-
-      specs.each do |spec|
-        next if spec.name == "bundler"
-        next if spec.require_paths.nil? # builtin gems
-
-        spec.require_paths.each do |path|
-          full_path = Pathname.new(path).absolute? ? path : File.join(spec.full_gem_path, path)
-          gem_path = Pathname.new(full_path).relative_path_from(Bundler.root.join(bundler_path))
-          paths << gem_path.to_s.sub("#{Bundler.ruby_version.engine}/#{RbConfig::CONFIG["ruby_version"]}", '#{ruby_engine}/#{ruby_version}')
-        end
-      end
-
-      File.open File.join(bundler_path, "setup.rb"), "w" do |file|
-        file.puts "require 'rbconfig'"
-        file.puts "# ruby 1.8.7 doesn't define RUBY_ENGINE"
-        file.puts "ruby_engine = defined?(RUBY_ENGINE) ? RUBY_ENGINE : 'ruby'"
-        file.puts "ruby_version = RbConfig::CONFIG[\"ruby_version\"]"
-        file.puts "path = File.expand_path('..', __FILE__)"
-        paths.each do |path|
-          file.puts %{$:.unshift "\#{path}/#{path}"}
-        end
-      end
-    end
-
-    def install_sequentially(standalone, force = false)
-      specs.each do |spec|
-        message = install_gem_from_spec spec, standalone, 0, force
-        if message
-          Installer.post_install_messages[spec.name] = message
-        end
-      end
-    end
-
     def install_in_parallel(size, standalone, force = false)
       ParallelInstaller.call(self, specs, size, standalone, force)
     end
 
     def create_bundle_path
-      Bundler.mkdir_p(Bundler.bundle_path.to_s) unless Bundler.bundle_path.exist?
+      SharedHelpers.filesystem_access(Bundler.bundle_path.to_s) do |p|
+        Bundler.mkdir_p(p)
+      end unless Bundler.bundle_path.exist?
     rescue Errno::EEXIST
       raise PathError, "Could not install to path `#{Bundler.settings[:path]}` " \
         "because of an invalid symlink. Remove the symlink so the directory can be created."
