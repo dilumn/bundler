@@ -64,10 +64,12 @@ module Bundler
 
         if Bundler.requires_sudo?
           Bundler.mkdir_p "#{Bundler.rubygems.gem_dir}/cache"
-          Bundler.sudo "mv #{Bundler.tmp(spec.full_name)}/cache/#{spec.full_name}.gem #{gem_path}"
+          Bundler.sudo "mv #{download_path}/cache/#{spec.full_name}.gem #{gem_path}"
         end
 
         gem_path
+      ensure
+        Bundler.rm_rf(download_path) if Bundler.requires_sudo?
       end
 
       def user_agent

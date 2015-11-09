@@ -97,7 +97,7 @@ describe "The library itself" do
       end
     end
 
-    expect(@err).to eq("")
+    expect(@err.split("\n")).to eq([])
     expect(@out).to eq("")
   end
 end

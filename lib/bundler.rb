@@ -212,13 +212,11 @@ module Bundler
     end
 
     def tmp(name = Process.pid.to_s)
-      @tmp ||= Pathname.new Dir.mktmpdir("bundler")
-      @tmp.join(name)
+      Pathname.new(Dir.mktmpdir(["bundler", name]))
     end
 
-    def cleanup
-      FileUtils.remove_entry_secure(@tmp) if @tmp
-    rescue
+    def rm_rf(path)
+      FileUtils.remove_entry_secure(path) if path && File.exist?(path)
     end
 
     def settings
@@ -316,7 +314,8 @@ module Bundler
         executable
       elsif ENV['PATH']
         path = ENV['PATH'].split(File::PATH_SEPARATOR).find do |p|
-          File.executable?(File.join(p, executable))
+          abs_path = File.join(p, executable)
+          File.file?(abs_path) && File.executable?(abs_path)
         end
         path && File.expand_path(executable, path)
       end

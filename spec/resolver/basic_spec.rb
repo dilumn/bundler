@@ -57,10 +57,23 @@ describe "Resolving" do
     @index = a_circular_index
     dep "circular_app"
 
-    got = resolve
     expect {
-      got = got.map { |s| s.full_name }.sort
-    }.to raise_error(Bundler::CyclicDependencyError, /please remove either gem 'foo' or gem 'bar'/i)
+      resolve
+    }.to raise_error(Bundler::CyclicDependencyError, /please remove either gem 'bar' or gem 'foo'/i)
+  end
+
+  # Issue #3459
+  it "should install the latest possible version of a direct requirement with no constraints given" do
+    @index = a_complicated_index
+    dep "foo"
+    should_resolve_and_include %w(foo-3.0.5)
+  end
+
+  # Issue #3459
+  it "should install the latest possible version of a direct requirement with constraints given" do
+    @index = a_complicated_index
+    dep "foo", ">= 3.0.0"
+    should_resolve_and_include %w(foo-3.0.5)
   end
 
 end

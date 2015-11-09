@@ -145,9 +145,7 @@ module Bundler
         spec.loaded_from = loaded_from(spec)
         ["Installing #{version_message(spec)}", spec.post_install_message]
       ensure
-        if install_path && Bundler.requires_sudo?
-          FileUtils.remove_entry_secure(install_path)
-        end
+        Bundler.rm_rf(install_path) if Bundler.requires_sudo?
       end
 
       def cache(spec, custom_path = nil)
@@ -315,6 +313,8 @@ module Bundler
           # the gemspecs of those gems, if the non-api sites contain more than
           # about 100 gems, we just treat all sites as non-api for speed.
           allow_api = idx.size < API_REQUEST_LIMIT && dependency_names.size < API_REQUEST_LIMIT
+          Bundler.ui.debug "Need to query more than #{API_REQUEST_LIMIT} gems." \
+            " Downloading full index instead..." unless allow_api
 
           if allow_api
             api_fetchers.each do |f|

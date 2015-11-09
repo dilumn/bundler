@@ -27,31 +27,6 @@ describe "parallel", :realworld => true do
     expect(out).to match(/: "4"/)
   end
 
-  it "installs even with circular dependency", :ruby => "1.9" do
-    gemfile <<-G
-      source 'https://rubygems.org'
-      gem 'activesupport', '~> 3.2.13'
-      gem 'mongoid_auto_increment', "0.1.1"
-    G
-
-    bundle :install, :jobs => 4, :env => {"DEBUG" => "1"}
-
-    if Bundler.rubygems.provides?(">= 2.1.0")
-      expect(out).to match(/[1-3]: /)
-    else
-      expect(out).to include("is not threadsafe")
-    end
-
-    bundle "show activesupport"
-    expect(out).to match(/activesupport/)
-
-    bundle "show mongoid_auto_increment"
-    expect(out).to match(%r{gems/mongoid_auto_increment})
-
-    bundle "config jobs"
-    expect(out).to match(/: "4"/)
-  end
-
   it "updates" do
     install_gemfile <<-G
       source "https://rubygems.org"

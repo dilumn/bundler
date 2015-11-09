@@ -20,9 +20,9 @@ module Bundler
 
       underscored_name = name.tr('-', '_')
       namespaced_path = name.tr('-', '/')
-      constant_name = name.split('_').map{|p| p[0..0].upcase + p[1..-1] unless p.empty?}.join
-      constant_name = constant_name.split('-').map{|q| q[0..0].upcase + q[1..-1] }.join('::') if constant_name =~ /-/
+      constant_name = name.gsub(/-[_-]*(?![_-]|$)/){ '::' }.gsub(/([_-]+|(::)|^)(.|$)/){ $2.to_s + $3.upcase }
       constant_array = constant_name.split('::')
+
       git_user_name = `git config user.name`.chomp
       git_user_email = `git config user.email`.chomp
 
@@ -37,8 +37,10 @@ module Bundler
         :email            => git_user_email.empty? ? "TODO: Write your email address" : git_user_email,
         :test             => options[:test],
         :ext              => options[:ext],
-        :bin              => options[:bin]
+        :bin              => options[:bin],
+        :bundler_version  => bundler_dependency_version
       }
+      ensure_safe_gem_name(name, constant_array)
 
       templates = {
         "Gemfile.tt" => "Gemfile",
@@ -51,6 +53,11 @@ module Bundler
         "bin/console.tt" => "bin/console",
         "bin/setup.tt" => "bin/setup"
       }
+
+      executables = %w[
+        bin/console
+        bin/setup
+      ]
 
       if ask_and_set(:coc, "Do you want to include a code of conduct in gems you generate?",
           "Codes of conduct can increase contributions to your project by contributors who " \
@@ -103,6 +110,12 @@ module Bundler
         thor.template("newgem/#{src}", target.join(dst), config)
       end
 
+      executables.each do |file|
+        path = target.join(file)
+        executable = (path.stat.mode | 0111)
+        path.chmod(executable)
+      end
+
       Bundler.ui.info "Initializing git repo in #{target}"
       Dir.chdir(target) { `git init`; `git add .` }
 
@@ -123,7 +136,7 @@ module Bundler
 
       if choice.nil?
         Bundler.ui.confirm header
-        choice = (Bundler.ui.ask("#{message} y/(n):") =~ /y|yes/)
+        choice = Bundler.ui.yes? "#{message} y/(n):"
         Bundler.settings.set_global("gem.#{key}", choice)
       end
 
@@ -159,6 +172,23 @@ module Bundler
       end
 
       test_framework
+    end
+
+    def bundler_dependency_version
+      v = Gem::Version.new(Bundler::VERSION)
+      req = v.segments[0..1]
+      req << 'a' if v.prerelease?
+      req.join(".")
+    end
+
+    def ensure_safe_gem_name name, constant_array
+      if name =~ /^\d/
+        Bundler.ui.error "Invalid gem name #{name} Please give a name which does not start with numbers."
+        exit 1
+      elsif constant_array.inject(Object) {|c, s| (c.const_defined?(s) && c.const_get(s)) || break }
+        Bundler.ui.error "Invalid gem name #{name} constant #{constant_array.join("::")} is already in use. Please choose another gem name."
+        exit 1
+      end
     end
 
   end
