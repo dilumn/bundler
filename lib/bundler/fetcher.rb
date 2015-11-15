@@ -1,6 +1,7 @@
 require "bundler/vendored_persistent"
 require "cgi"
 require "securerandom"
+require "zlib"
 
 module Bundler
 
@@ -169,7 +170,7 @@ module Bundler
     end
 
     def fetchers
-      @fetchers ||= FETCHERS.map {|f| f.new(downloader, remote_uri, fetch_uri, uri) }
+      @fetchers ||= FETCHERS.map {|f| f.new(downloader, @remote, uri) }
     end
 
     def http_proxy
@@ -245,7 +246,7 @@ module Bundler
       Timeout::Error, EOFError, SocketError, Errno::ENETDOWN, Errno::ENETUNREACH,
       Errno::EINVAL, Errno::ECONNRESET, Errno::ETIMEDOUT, Errno::EAGAIN,
       Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, Net::ProtocolError,
-      Net::HTTP::Persistent::Error
+      Net::HTTP::Persistent::Error, Zlib::BufError
     ]
 
     def bundler_cert_store
@@ -265,18 +266,6 @@ module Bundler
     end
 
   private
-
-    def fetch_uri
-      @fetch_uri ||= begin
-        if remote_uri.host == "rubygems.org"
-          uri = remote_uri.dup
-          uri.host = "bundler.rubygems.org"
-          uri
-        else
-          remote_uri
-        end
-      end
-    end
 
     def remote_uri
       @remote.uri
