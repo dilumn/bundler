@@ -16,9 +16,9 @@ describe Bundler::Dsl do
     end
 
     it "raises exception on invalid hostname" do
-      expect {
+      expect do
         subject.git_source(:group) {|repo_name| "git@git.example.com:#{repo_name}.git" }
-      }.to raise_error(Bundler::InvalidOption)
+      end.to raise_error(Bundler::InvalidOption)
     end
 
     it "expects block passed" do
@@ -145,6 +145,39 @@ describe Bundler::Dsl do
     end
   end
 
+  describe "#gemspec" do
+    let(:spec) do
+      Gem::Specification.new do |gem|
+        gem.name = "example"
+        gem.platform = platform
+      end
+    end
+
+    before do
+      allow(Dir).to receive(:[]).and_return(["spec_path"])
+      allow(Bundler).to receive(:load_gemspec).with("spec_path").and_return(spec)
+      allow(Bundler).to receive(:default_gemfile).and_return(Pathname.new("./Gemfile"))
+    end
+
+    context "with a ruby platform" do
+      let(:platform) { "ruby" }
+
+      it "keeps track of the ruby platforms in the dependency" do
+        subject.gemspec
+        expect(subject.dependencies.last.platforms).to eq(Bundler::Dependency::REVERSE_PLATFORM_MAP[Gem::Platform::RUBY])
+      end
+    end
+
+    context "with a jruby platform" do
+      let(:platform) { "java" }
+
+      it "keeps track of the jruby platforms in the dependency" do
+        subject.gemspec
+        expect(subject.dependencies.last.platforms).to eq(Bundler::Dependency::REVERSE_PLATFORM_MAP[Gem::Platform::JAVA])
+      end
+    end
+  end
+
   context "can bundle groups of gems with" do
     # git "https://github.com/rails/rails.git" do
     #   gem "railties"
@@ -153,7 +186,7 @@ describe Bundler::Dsl do
     # end
     describe "#git" do
       it "from a single repo" do
-        rails_gems = %w[railties action_pack active_model]
+        rails_gems = %w(railties action_pack active_model)
         subject.git "https://github.com/rails/rails.git" do
           rails_gems.each {|rails_gem| subject.send :gem, rails_gem }
         end
@@ -168,7 +201,7 @@ describe Bundler::Dsl do
     # end
     describe "#github" do
       it "from github" do
-        spree_gems = %w[spree_core spree_api spree_backend]
+        spree_gems = %w(spree_core spree_api spree_backend)
         subject.github "spree" do
           spree_gems.each {|spree_gem| subject.send :gem, spree_gem }
         end

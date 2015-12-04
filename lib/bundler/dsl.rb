@@ -60,7 +60,7 @@ module Bundler
             "#{file}. Make sure you can build the gem, then try again"
         end
 
-        gem spec.name, :path => path, :glob => glob
+        gem spec.name, :path => path, :glob => glob, :platforms => Bundler::Dependency::REVERSE_PLATFORM_MAP[spec.platform]
 
         group(development_group) do
           spec.development_dependencies.each do |dep|
@@ -205,7 +205,8 @@ module Bundler
     alias_method :platform, :platforms
 
     def env(name)
-      @env, old = name, @env
+      old = @env
+      @env = name
       yield
     ensure
       @env = old
@@ -219,6 +220,19 @@ module Bundler
 
     def add_git_sources
       git_source(:github) do |repo_name|
+        # It would be better to use https instead of the git protocol, but this
+        # can break deployment of existing locked bundles when switching between
+        # different versions of Bundler. The change will be made in 2.0, which
+        # does not guarantee compatibility with the 1.x series.
+        #
+        # See https://github.com/bundler/bundler/pull/2569 for discussion
+        #
+        # This can be overridden by adding this code to your Gemfiles:
+        #
+        #   git_source(:github) do |repo_name|
+        #     repo_name = "#{repo_name}/#{repo_name}" unless repo_name.include?("/")
+        #     "https://github.com/#{repo_name}.git"
+        #   end
         repo_name = "#{repo_name}/#{repo_name}" unless repo_name.include?("/")
         "git://github.com/#{repo_name}.git"
       end
@@ -256,10 +270,10 @@ module Bundler
 
     def normalize_options(name, version, opts)
       if name.is_a?(Symbol)
-        raise GemfileError, %{You need to specify gem names as Strings. Use 'gem "#{name}"' instead}
+        raise GemfileError, %(You need to specify gem names as Strings. Use 'gem "#{name}"' instead)
       end
       if name =~ /\s/
-        raise GemfileError, %{'#{name}' is not a valid gem name because it contains whitespace}
+        raise GemfileError, %('#{name}' is not a valid gem name because it contains whitespace)
       end
 
       normalize_hash(opts)
@@ -298,16 +312,15 @@ module Bundler
         opts["git"] = @git_sources[git_name].call(opts[git_name])
       end
 
-      %w[git path].each do |type|
-        if param = opts[type]
-          if version.first && version.first =~ /^\s*=?\s*(\d[^\s]*)\s*$/
-            options = opts.merge("name" => name, "version" => $1)
-          else
-            options = opts.dup
-          end
-          source = send(type, param, options) {}
-          opts["source"] = source
+      %w(git path).each do |type|
+        next unless param = opts[type]
+        if version.first && version.first =~ /^\s*=?\s*(\d[^\s]*)\s*$/
+          options = opts.merge("name" => name, "version" => $1)
+        else
+          options = opts.dup
         end
+        source = send(type, param, options) {}
+        opts["source"] = source
       end
 
       opts["source"] ||= @source
@@ -474,5 +487,4 @@ module Bundler
       end
     end
   end
-
 end

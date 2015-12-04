@@ -68,7 +68,7 @@ module Bundler
       end
 
       def to_s
-        remote_names = self.remotes.map(&:to_s).join(", ")
+        remote_names = remotes.map(&:to_s).join(", ")
         "rubygems repository #{remote_names}"
       end
       alias_method :name, :to_s
@@ -264,7 +264,7 @@ module Bundler
 
       def normalize_uri(uri)
         uri = uri.to_s
-        uri = "#{uri}/" unless uri =~ %r'/$'
+        uri = "#{uri}/" unless uri =~ %r{/$}
         uri = URI(uri)
         raise ArgumentError, "The source must be an absolute URI. For example:\n" \
           "source 'https://rubygems.org'" if !uri.absolute? || (uri.is_a?(URI::HTTP) && uri.host.nil?)
@@ -337,7 +337,7 @@ module Bundler
           # gather lists from non-api sites
           index_fetchers.each do |f|
             Bundler.ui.info "Fetching source index from #{f.uri}"
-            idx.use f.specs(nil, self)
+            idx.use f.specs_with_retry(nil, self)
           end
 
           # because ensuring we have all the gems we need involves downloading
@@ -350,7 +350,7 @@ module Bundler
           if allow_api
             api_fetchers.each do |f|
               Bundler.ui.info "Fetching gem metadata from #{f.uri}", Bundler.ui.debug?
-              idx.use f.specs(dependency_names, self)
+              idx.use f.specs_with_retry(dependency_names, self)
               Bundler.ui.info "" unless Bundler.ui.debug? # new line now that the dots are over
             end
 
@@ -363,7 +363,7 @@ module Bundler
               idxcount = idx.size
               api_fetchers.each do |f|
                 Bundler.ui.info "Fetching version metadata from #{f.uri}", Bundler.ui.debug?
-                idx.use f.specs(idx.dependency_names, self), true
+                idx.use f.specs_with_retry(idx.dependency_names, self), true
                 Bundler.ui.info "" unless Bundler.ui.debug? # new line now that the dots are over
               end
               break if idxcount == idx.size
@@ -378,7 +378,7 @@ module Bundler
               # if there are any cross-site gems we missed, get them now
               api_fetchers.each do |f|
                 Bundler.ui.info "Fetching dependency metadata from #{f.uri}", Bundler.ui.debug?
-                idx.use f.specs(unmet, self)
+                idx.use f.specs_with_retry(unmet, self)
                 Bundler.ui.info "" unless Bundler.ui.debug? # new line now that the dots are over
               end if unmet.any?
             else
@@ -389,7 +389,7 @@ module Bundler
           unless allow_api
             api_fetchers.each do |f|
               Bundler.ui.info "Fetching source index from #{f.uri}"
-              idx.use f.specs(nil, self)
+              idx.use f.specs_with_retry(nil, self)
             end
           end
         end

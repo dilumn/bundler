@@ -61,10 +61,10 @@ module Bundler
         "bin/setup.tt" => "bin/setup"
       }
 
-      executables = %w[
+      executables = %w(
         bin/console
         bin/setup
-      ]
+      )
 
       if test_framework = ask_and_set_test_framework
         config[:test] = test_framework
@@ -100,7 +100,9 @@ module Bundler
         "Codes of conduct can increase contributions to your project by contributors who " \
         "prefer collaborative, safe spaces. You can read more about the code of conduct at " \
         "contributor-covenant.org. Having a code of conduct means agreeing to the responsibility " \
-        "of enforcing it, so be sure that you are prepared to do that. For suggestions about " \
+        "of enforcing it, so be sure that you are prepared to do that. Be sure that your email " \
+        "address is specified as a contact in the generated code of conduct so that people know " \
+        "who to contact in case of a violation. For suggestions about " \
         "how to enforce codes of conduct, see http://bit.ly/coc-enforcement.")
         config[:coc] = true
         Bundler.ui.info "Code of conduct enabled in config"

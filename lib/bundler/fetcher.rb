@@ -4,7 +4,6 @@ require "securerandom"
 require "zlib"
 
 module Bundler
-
   # Handles all the fetching with the rubygems server
   class Fetcher
     autoload :Downloader, "bundler/fetcher/downloader"
@@ -92,6 +91,13 @@ module Bundler
         "Your network or your gem server is probably having issues right now."
     end
 
+    # return the specs in the bundler format as an index with retries
+    def specs_with_retry(gem_names, source)
+      Bundler::Retry.new("fetcher").attempts do
+        specs(gem_names, source)
+      end
+    end
+
     # return the specs in the bundler format as an index
     def specs(gem_names, source)
       old = Bundler.rubygems.sources
@@ -99,9 +105,7 @@ module Bundler
 
       specs = {}
       fetchers.dup.each do |f|
-        unless f.api_fetcher? && !gem_names
-          break if specs = f.specs(gem_names)
-        end
+        break unless f.api_fetcher? && !gem_names || !specs = f.specs(gem_names)
         fetchers.delete(f)
       end
       @use_api = false if fetchers.none?(&:api_fetcher?)
@@ -150,7 +154,11 @@ module Bundler
 
         if ruby.engine != "ruby"
           # engine_version raises on unknown engines
-          engine_version = ruby.engine_version rescue "???"
+          engine_version = begin
+                             ruby.engine_version
+                           rescue
+                             "???"
+                           end
           agent << " #{ruby.engine}/#{engine_version}"
         end
 
@@ -176,8 +184,6 @@ module Bundler
     def http_proxy
       if uri = connection.proxy_uri
         uri.to_s
-      else
-        nil
       end
     end
 
