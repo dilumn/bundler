@@ -16,39 +16,40 @@ module Bundler
   ORIGINAL_ENV = ENV.to_hash
   SUDO_MUTEX = Mutex.new
 
-  autoload :Definition,            "bundler/definition"
-  autoload :Dependency,            "bundler/dependency"
-  autoload :DepProxy,              "bundler/dep_proxy"
-  autoload :Deprecate,             "bundler/deprecate"
-  autoload :Dsl,                   "bundler/dsl"
-  autoload :EndpointSpecification, "bundler/endpoint_specification"
-  autoload :Environment,           "bundler/environment"
-  autoload :Env,                   "bundler/env"
-  autoload :Fetcher,               "bundler/fetcher"
-  autoload :GemHelper,             "bundler/gem_helper"
-  autoload :GemHelpers,            "bundler/gem_helpers"
-  autoload :RubyGemsGemInstaller,  "bundler/rubygems_gem_installer"
-  autoload :Graph,                 "bundler/graph"
-  autoload :Index,                 "bundler/index"
-  autoload :Installer,             "bundler/installer"
-  autoload :Injector,              "bundler/injector"
-  autoload :LazySpecification,     "bundler/lazy_specification"
-  autoload :LockfileParser,        "bundler/lockfile_parser"
-  autoload :MatchPlatform,         "bundler/match_platform"
-  autoload :RemoteSpecification,   "bundler/remote_specification"
-  autoload :Resolver,              "bundler/resolver"
-  autoload :Retry,                 "bundler/retry"
-  autoload :RubyVersion,           "bundler/ruby_version"
-  autoload :RubyDsl,               "bundler/ruby_dsl"
-  autoload :Runtime,               "bundler/runtime"
-  autoload :Settings,              "bundler/settings"
-  autoload :SharedHelpers,         "bundler/shared_helpers"
-  autoload :SpecSet,               "bundler/spec_set"
-  autoload :StubSpecification,     "bundler/stub_specification"
-  autoload :Source,                "bundler/source"
-  autoload :SourceList,            "bundler/source_list"
-  autoload :SystemRubyVersion,     "bundler/ruby_version"
-  autoload :UI,                    "bundler/ui"
+  autoload :Definition,             "bundler/definition"
+  autoload :Dependency,             "bundler/dependency"
+  autoload :DepProxy,               "bundler/dep_proxy"
+  autoload :Deprecate,              "bundler/deprecate"
+  autoload :Dsl,                    "bundler/dsl"
+  autoload :EndpointSpecification,  "bundler/endpoint_specification"
+  autoload :Environment,            "bundler/environment"
+  autoload :Env,                    "bundler/env"
+  autoload :Fetcher,                "bundler/fetcher"
+  autoload :GemHelper,              "bundler/gem_helper"
+  autoload :GemHelpers,             "bundler/gem_helpers"
+  autoload :Graph,                  "bundler/graph"
+  autoload :Index,                  "bundler/index"
+  autoload :Installer,              "bundler/installer"
+  autoload :Injector,               "bundler/injector"
+  autoload :LazySpecification,      "bundler/lazy_specification"
+  autoload :LockfileParser,         "bundler/lockfile_parser"
+  autoload :MatchPlatform,          "bundler/match_platform"
+  autoload :RemoteSpecification,    "bundler/remote_specification"
+  autoload :Resolver,               "bundler/resolver"
+  autoload :Retry,                  "bundler/retry"
+  autoload :RubyVersion,            "bundler/ruby_version"
+  autoload :RubyDsl,                "bundler/ruby_dsl"
+  autoload :Runtime,                "bundler/runtime"
+  autoload :Settings,               "bundler/settings"
+  autoload :SharedHelpers,          "bundler/shared_helpers"
+  autoload :SpecSet,                "bundler/spec_set"
+  autoload :StubSpecification,      "bundler/stub_specification"
+  autoload :Source,                 "bundler/source"
+  autoload :SourceList,             "bundler/source_list"
+  autoload :SystemRubyVersion,      "bundler/ruby_version"
+  autoload :RubyGemsGemInstaller,   "bundler/rubygems_gem_installer"
+  autoload :RubyVersionRequirement, "bundler/ruby_version"
+  autoload :UI,                     "bundler/ui"
 
   class << self
     attr_writer :bundle_path
@@ -375,7 +376,7 @@ module Bundler
       # If the YAML is invalid, Syck raises an ArgumentError, and Psych
       # raises a Psych::SyntaxError. See psyched_yaml.rb for more info.
       Gem::Specification.from_yaml(contents)
-    rescue YamlSyntaxError, ArgumentError, Gem::EndOfYAMLException, Gem::Exception
+    rescue YamlLibrarySyntaxError, ArgumentError, Gem::EndOfYAMLException, Gem::Exception
       eval_gemspec(path, contents)
     end
 
