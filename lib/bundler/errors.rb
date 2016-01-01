@@ -5,14 +5,27 @@ module Bundler
     end
   end
 
-  class GemfileNotFound < BundlerError; status_code(10); end
-  class GemNotFound < BundlerError; status_code(7); end
   class GemfileError < BundlerError; status_code(4); end
   class InstallError < BundlerError; status_code(5); end
+
+  # Internal error, should be rescued
+  class VersionConflict < BundlerError
+    attr_reader :conflicts
+
+    def initialize(conflicts, msg = nil)
+      super(msg)
+      @conflicts = conflicts
+    end
+
+    status_code(6)
+  end
+
+  class GemNotFound < BundlerError; status_code(7); end
   class InstallHookError < BundlerError; status_code(8); end
-  class PathError < BundlerError; status_code(13); end
+  class GemfileNotFound < BundlerError; status_code(10); end
   class GitError < BundlerError; status_code(11); end
   class DeprecatedError < BundlerError; status_code(12); end
+  class PathError < BundlerError; status_code(13); end
   class GemspecError < BundlerError; status_code(14); end
   class InvalidOption < BundlerError; status_code(15); end
   class ProductionError < BundlerError; status_code(16); end
@@ -25,16 +38,28 @@ module Bundler
   class GemfileEvalError < GemfileError; end
   class MarshalError < StandardError; end
 
-  # Internal errors, should be rescued
-  class VersionConflict < BundlerError
-    attr_reader :conflicts
-
-    def initialize(conflicts, msg = nil)
-      super(msg)
-      @conflicts = conflicts
+  class PermissionError < BundlerError
+    def initialize(path, permission_type = :write)
+      @path = path
+      @permission_type = permission_type
     end
 
-    status_code(6)
+    def action
+      case @permission_type
+      when :read then "read from"
+      when :write then "write to"
+      when :executable, :exec then "execute"
+      else @permission_type.to_s
+      end
+    end
+
+    def message
+      "There was an error while trying to #{action} `#{@path}`. " \
+      "It is likely that you need to grant #{@permission_type} permissions " \
+      "for that path."
+    end
+
+    status_code(23)
   end
 
   class GemRequireError < BundlerError
@@ -52,27 +77,6 @@ module Bundler
     status_code(24)
   end
 
-  class PermissionError < BundlerError
-    def initialize(path, permission_type = :write)
-      @path = path
-      @permission_type = permission_type
-    end
-
-    def message
-      action = case @permission_type
-               when :read then "read from"
-               when :write then "write to"
-               when :executable, :exec then "execute"
-               else @permission_type.to_s
-      end
-      "There was an error while trying to #{action} `#{@path}`. " \
-      "It is likely that you need to grant #{@permission_type} permissions " \
-      "for that path."
-    end
-
-    status_code(23)
-  end
-
   class YamlSyntaxError < BundlerError
     attr_reader :orig_exception
 
@@ -82,5 +86,15 @@ module Bundler
     end
 
     status_code(25)
+  end
+
+  class TemporaryResourceError < PermissionError
+    def message
+      "There was an error while trying to #{action} `#{@path}`. " \
+      "Some resource was temporarily unavailable. It's suggested that you try" \
+      "the operation again."
+    end
+
+    status_code(26)
   end
 end
