@@ -93,7 +93,7 @@ module Bundler
     end
 
     # Rescues permissions errors raised by file system operations
-    # (ie. Errno:EACCESS) and raises more friendly errors instead.
+    # (ie. Errno:EACCESS, Errno::EAGAIN) and raises more friendly errors instead.
     #
     # @param path [String] the path that the action will be attempted to
     # @param action [Symbol, #to_s] the type of operation that will be
@@ -102,6 +102,8 @@ module Bundler
     # @yield path
     #
     # @raise [Bundler::PermissionError] if Errno:EACCES is raised in the
+    #   given block
+    # @raise [Bundler::TemporaryResourceError] if Errno:EAGAIN is raised in the
     #   given block
     #
     # @example
@@ -116,6 +118,13 @@ module Bundler
       raise PermissionError.new(path, action)
     rescue Errno::EAGAIN
       raise TemporaryResourceError.new(path, action)
+    end
+
+    def const_get_safely(constant_name, namespace)
+      const_in_namespace = namespace.constants.include?(constant_name.to_s) ||
+        namespace.constants.include?(constant_name.to_sym)
+      return nil unless const_in_namespace
+      namespace.const_get(constant_name)
     end
 
   private
