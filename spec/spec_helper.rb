@@ -74,9 +74,13 @@ RSpec.configure do |config|
   config.filter_run :focused => true unless ENV["CI"]
   config.run_all_when_everything_filtered = true
 
-  original_wd       = Dir.pwd
-  original_path     = ENV["PATH"]
-  original_gem_home = ENV["GEM_HOME"]
+  original_wd            = Dir.pwd
+  original_path          = ENV["PATH"]
+  original_gem_home      = ENV["GEM_HOME"]
+  original_ruby_opt      = ENV["RUBYOPT"]
+  original_ruby_lib      = ENV["RUBYLIB"]
+  original_git_dir       = ENV["GIT_DIR"]
+  original_git_work_tree = ENV["GIT_WORK_TREE"]
 
   def pending_jruby_shebang_fix
     pending "JRuby executables do not have a proper shebang" if RUBY_PLATFORM == "java"
@@ -104,6 +108,10 @@ RSpec.configure do |config|
     ENV["PATH"]                  = original_path
     ENV["GEM_HOME"]              = original_gem_home
     ENV["GEM_PATH"]              = original_gem_home
+    ENV["RUBYOPT"]               = original_ruby_opt
+    ENV["RUBYLIB"]               = original_ruby_lib
+    ENV["GIT_DIR"]               = original_git_dir
+    ENV["GIT_WORK_TREE"]         = original_git_work_tree
     ENV["BUNDLE_PATH"]           = nil
     ENV["BUNDLE_GEMFILE"]        = nil
     ENV["BUNDLE_FROZEN"]         = nil
