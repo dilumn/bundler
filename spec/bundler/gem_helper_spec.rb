@@ -1,8 +1,9 @@
-require "spec_helper"
+# frozen_string_literal: true
+
 require "rake"
 require "bundler/gem_helper"
 
-describe Bundler::GemHelper do
+RSpec.describe Bundler::GemHelper do
   let(:app_name) { "lorem__ipsum" }
   let(:app_path) { bundled_app app_name }
   let(:app_gemspec_path) { app_path.join("#{app_name}.gemspec") }
@@ -104,15 +105,15 @@ describe Bundler::GemHelper do
 
       context "defines Rake tasks" do
         let(:task_names) do
-          %w(build install release release:guard_clean
-             release:source_control_push release:rubygem_push)
+          %w[build install release release:guard_clean
+             release:source_control_push release:rubygem_push]
         end
 
         context "before installation" do
           it "raises an error with appropriate message" do
             task_names.each do |name|
               expect { Rake.application[name] }.
-                to raise_error("Don't know how to build task '#{name}'")
+                to raise_error(/^Don't know how to build task '#{name}'/)
             end
           end
         end
@@ -159,9 +160,10 @@ describe Bundler::GemHelper do
         it "gem is installed" do
           mock_build_message app_name, app_version
           mock_confirm_message "#{app_name} (#{app_version}) installed."
-          subject.install_gem
+          subject.install_gem(nil, :local)
           expect(app_gem_path).to exist
-          expect(`gem list`).to include("#{app_name} (#{app_version})")
+          gem_command! :list
+          expect(out).to include("#{app_name} (#{app_version})")
         end
       end
 
@@ -197,6 +199,10 @@ describe Bundler::GemHelper do
           `git config user.name "name"`
           `git config push.default simple`
         end
+
+        # silence messages
+        allow(Bundler.ui).to receive(:confirm)
+        allow(Bundler.ui).to receive(:error)
       end
 
       context "fails" do
@@ -212,10 +218,6 @@ describe Bundler::GemHelper do
         end
 
         it "when there is no git remote" do
-          # silence messages
-          allow(Bundler.ui).to receive(:confirm)
-          allow(Bundler.ui).to receive(:error)
-
           Dir.chdir(app_path) { `git commit -a -m "initial commit"` }
           expect { Rake.application["release"].invoke }.to raise_error(RuntimeError)
         end
@@ -236,7 +238,7 @@ describe Bundler::GemHelper do
           mock_confirm_message "Pushed git commits and tags."
           expect(subject).to receive(:rubygem_push).with(app_gem_path.to_s)
 
-          Dir.chdir(app_path) { sys_exec("git push -u origin master", true) }
+          Dir.chdir(app_path) { sys_exec("git push -u origin master") }
 
           Rake.application["release"].invoke
         end

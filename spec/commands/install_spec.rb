@@ -1,6 +1,6 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "bundle install with gem sources" do
+RSpec.describe "bundle install with gem sources" do
   describe "the simple case" do
     it "prints output and returns if no dependencies are specified" do
       gemfile <<-G
@@ -12,12 +12,11 @@ describe "bundle install with gem sources" do
     end
 
     it "does not make a lockfile if the install fails" do
-      install_gemfile <<-G, :expect_err => true
+      install_gemfile <<-G
         raise StandardError, "FAIL"
       G
 
-      expect(err).to eq ""
-      expect(out).to match(/StandardError, "FAIL"/)
+      expect(last_command.bundler_err).to include('StandardError, "FAIL"')
       expect(bundled_app("Gemfile.lock")).not_to exist
     end
 
@@ -28,6 +27,26 @@ describe "bundle install with gem sources" do
       G
 
       expect(bundled_app("Gemfile.lock")).to exist
+    end
+
+    it "does not create ./.bundle by default", :bundler => "< 2" do
+      gemfile <<-G
+        source "file://#{gem_repo1}"
+        gem "rack"
+      G
+
+      bundle! :install # can't use install_gemfile since it sets retry
+      expect(bundled_app(".bundle")).not_to exist
+    end
+
+    it "does not create ./.bundle by default when installing to system gems" do
+      gemfile <<-G
+        source "file://#{gem_repo1}"
+        gem "rack"
+      G
+
+      bundle! :install, :env => { "BUNDLE_PATH__SYSTEM" => true } # can't use install_gemfile since it sets retry
+      expect(bundled_app(".bundle")).not_to exist
     end
 
     it "creates lock files based on the Gemfile name" do
@@ -49,7 +68,7 @@ describe "bundle install with gem sources" do
 
       lockfile = File.read(bundled_app("Gemfile.lock"))
 
-      install_gemfile <<-G, :expect_err => true
+      install_gemfile <<-G
         raise StandardError, "FAIL"
       G
 
@@ -72,7 +91,7 @@ describe "bundle install with gem sources" do
       G
 
       expect(default_bundle_path("gems/rack-1.0.0")).to exist
-      should_be_installed("rack 1.0.0")
+      expect(the_bundle).to include_gems("rack 1.0.0")
     end
 
     it "fetches gems when multiple versions are specified" do
@@ -82,7 +101,7 @@ describe "bundle install with gem sources" do
       G
 
       expect(default_bundle_path("gems/rack-0.9.1")).to exist
-      should_be_installed("rack 0.9.1")
+      expect(the_bundle).to include_gems("rack 0.9.1")
     end
 
     it "fetches gems when multiple versions are specified take 2" do
@@ -92,7 +111,7 @@ describe "bundle install with gem sources" do
       G
 
       expect(default_bundle_path("gems/rack-0.9.1")).to exist
-      should_be_installed("rack 0.9.1")
+      expect(the_bundle).to include_gems("rack 0.9.1")
     end
 
     it "raises an appropriate error when gems are specified using symbols" do
@@ -109,7 +128,7 @@ describe "bundle install with gem sources" do
         gem "rails"
       G
 
-      should_be_installed "actionpack 2.3.2", "rails 2.3.2"
+      expect(the_bundle).to include_gems "actionpack 2.3.2", "rails 2.3.2"
     end
 
     it "does the right version" do
@@ -118,7 +137,7 @@ describe "bundle install with gem sources" do
         gem "rack", "0.9.1"
       G
 
-      should_be_installed "rack 0.9.1"
+      expect(the_bundle).to include_gems "rack 0.9.1"
     end
 
     it "does not install the development dependency" do
@@ -127,8 +146,8 @@ describe "bundle install with gem sources" do
         gem "with_development_dependency"
       G
 
-      should_be_installed "with_development_dependency 1.0.0"
-      should_not_be_installed "activesupport 2.3.5"
+      expect(the_bundle).to include_gems("with_development_dependency 1.0.0").
+        and not_include_gems("activesupport 2.3.5")
     end
 
     it "resolves correctly" do
@@ -138,7 +157,7 @@ describe "bundle install with gem sources" do
         gem "rails"
       G
 
-      should_be_installed "activemerchant 1.0", "activesupport 2.3.2", "actionpack 2.3.2"
+      expect(the_bundle).to include_gems "activemerchant 1.0", "activesupport 2.3.2", "actionpack 2.3.2"
     end
 
     it "activates gem correctly according to the resolved gems" do
@@ -153,11 +172,11 @@ describe "bundle install with gem sources" do
         gem "rails"
       G
 
-      should_be_installed "activemerchant 1.0", "activesupport 2.3.2", "actionpack 2.3.2"
+      expect(the_bundle).to include_gems "activemerchant 1.0", "activesupport 2.3.2", "actionpack 2.3.2"
     end
 
     it "does not reinstall any gem that is already available locally" do
-      system_gems "activesupport-2.3.2"
+      system_gems "activesupport-2.3.2", :path => :bundle_path
 
       build_repo2 do
         build_gem "activesupport", "2.3.2" do |s|
@@ -170,22 +189,22 @@ describe "bundle install with gem sources" do
         gem "activerecord", "2.3.2"
       G
 
-      should_be_installed "activesupport 2.3.2"
+      expect(the_bundle).to include_gems "activesupport 2.3.2"
     end
 
     it "works when the gemfile specifies gems that only exist in the system" do
-      build_gem "foo", :to_system => true
+      build_gem "foo", :to_bundle => true
       install_gemfile <<-G
         source "file://#{gem_repo1}"
         gem "rack"
         gem "foo"
       G
 
-      should_be_installed "rack 1.0.0", "foo 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0", "foo 1.0.0"
     end
 
     it "prioritizes local gems over remote gems" do
-      build_gem "rack", "1.0.0", :to_system => true do |s|
+      build_gem "rack", "1.0.0", :to_bundle => true do |s|
         s.add_dependency "activesupport", "2.3.5"
       end
 
@@ -194,7 +213,7 @@ describe "bundle install with gem sources" do
         gem "rack"
       G
 
-      should_be_installed "rack 1.0.0", "activesupport 2.3.5"
+      expect(the_bundle).to include_gems "rack 1.0.0", "activesupport 2.3.5"
     end
 
     describe "with a gem that installs multiple platforms" do
@@ -205,7 +224,7 @@ describe "bundle install with gem sources" do
         G
 
         run "require 'platform_specific' ; puts PLATFORM_SPECIFIC"
-        expect(out).to eq("1.0.0 #{Gem::Platform.local}")
+        expect(out).to eq("1.0.0 #{Bundler.local_platform}")
       end
 
       it "falls back on plain ruby" do
@@ -252,26 +271,26 @@ describe "bundle install with gem sources" do
       end
 
       it "works" do
-        bundle "install --path vendor"
-        should_be_installed "rack 1.0"
+        bundle "install", forgotten_command_line_options(:path => "vendor")
+        expect(the_bundle).to include_gems "rack 1.0"
       end
 
-      it "allows running bundle install --system without deleting foo" do
-        bundle "install --path vendor"
-        bundle "install --system"
+      it "allows running bundle install --system without deleting foo", :bundler => "< 2" do
+        bundle "install", forgotten_command_line_options(:path => "vendor")
+        bundle "install", forgotten_command_line_options(:system => true)
         FileUtils.rm_rf(bundled_app("vendor"))
-        should_be_installed "rack 1.0"
+        expect(the_bundle).to include_gems "rack 1.0"
       end
 
-      it "allows running bundle install --system after deleting foo" do
-        bundle "install --path vendor"
+      it "allows running bundle install --system after deleting foo", :bundler => "< 2" do
+        bundle "install", forgotten_command_line_options(:path => "vendor")
         FileUtils.rm_rf(bundled_app("vendor"))
-        bundle "install --system"
-        should_be_installed "rack 1.0"
+        bundle "install", forgotten_command_line_options(:system => true)
+        expect(the_bundle).to include_gems "rack 1.0"
       end
     end
 
-    it "finds gems in multiple sources" do
+    it "finds gems in multiple sources", :bundler => "< 2" do
       build_repo2
       update_repo2
 
@@ -283,7 +302,7 @@ describe "bundle install with gem sources" do
         gem "rack", "1.2"
       G
 
-      should_be_installed "rack 1.2", "activesupport 1.2.3"
+      expect(the_bundle).to include_gems "rack 1.2", "activesupport 1.2.3"
     end
 
     it "gives a useful error if no sources are set" do
@@ -291,7 +310,7 @@ describe "bundle install with gem sources" do
         gem "rack"
       G
 
-      bundle :install, :expect_err => true
+      bundle :install
       expect(out).to include("Your Gemfile has no gem server sources")
     end
 
@@ -303,16 +322,40 @@ describe "bundle install with gem sources" do
     end
 
     it "gracefully handles error when rubygems server is unavailable" do
-      install_gemfile <<-G
+      install_gemfile <<-G, :artifice => nil
         source "file://#{gem_repo1}"
-        source "http://localhost:9384"
-
-        gem 'foo'
+        source "http://localhost:9384" do
+          gem 'foo'
+        end
       G
 
-      bundle :install
+      bundle :install, :artifice => nil
       expect(out).to include("Could not fetch specs from http://localhost:9384/")
       expect(out).not_to include("file://")
+    end
+
+    it "fails gracefully when downloading an invalid specification from the full index", :rubygems => "2.5" do
+      build_repo2 do
+        build_gem "ajp-rails", "0.0.0", :gemspec => false, :skip_validation => true do |s|
+          bad_deps = [["ruby-ajp", ">= 0.2.0"], ["rails", ">= 0.14"]]
+          s.
+            instance_variable_get(:@spec).
+            instance_variable_set(:@dependencies, bad_deps)
+
+          raise "failed to set bad deps" unless s.dependencies == bad_deps
+        end
+        build_gem "ruby-ajp", "1.0.0"
+      end
+
+      install_gemfile <<-G, :full_index => true
+        source "file://#{gem_repo2}"
+
+        gem "ajp-rails", "0.0.0"
+      G
+
+      expect(last_command.stdboth).not_to match(/Error Report/i)
+      expect(last_command.bundler_err).to include("An error occurred while installing ajp-rails (0.0.0), and Bundler cannot continue.").
+        and include("Make sure that `gem install ajp-rails -v '0.0.0'` succeeds before bundling.")
     end
 
     it "doesn't blow up when the local .bundle/config is empty" do
@@ -345,7 +388,7 @@ describe "bundle install with gem sources" do
 
     context "and using an unsupported Ruby version" do
       it "prints an error" do
-        install_gemfile <<-G, :expect_err => true
+        install_gemfile <<-G
           ::RUBY_VERSION = '1.8.7'
           ruby '~> 2.1'
         G
@@ -355,7 +398,7 @@ describe "bundle install with gem sources" do
 
     context "and using a supported Ruby version" do
       before do
-        install_gemfile <<-G, :expect_err => true
+        install_gemfile <<-G
           ::RUBY_VERSION = '2.1.3'
           ::RUBY_PATCHLEVEL = 100
           ruby '~> 2.1.0'
@@ -368,7 +411,7 @@ describe "bundle install with gem sources" do
            specs:
 
          PLATFORMS
-           ruby
+           #{lockfile_platforms}
 
          DEPENDENCIES
 
@@ -380,8 +423,8 @@ describe "bundle install with gem sources" do
         L
       end
 
-      it "does not update Gemfile.lock with updated ruby versions" do
-        install_gemfile <<-G, :expect_err => true
+      it "updates Gemfile.lock with updated incompatible ruby version" do
+        install_gemfile <<-G
           ::RUBY_VERSION = '2.2.3'
           ::RUBY_PATCHLEVEL = 100
           ruby '~> 2.2.0'
@@ -392,12 +435,12 @@ describe "bundle install with gem sources" do
            specs:
 
          PLATFORMS
-           ruby
+           #{lockfile_platforms}
 
          DEPENDENCIES
 
          RUBY VERSION
-            ruby 2.1.3p100
+            ruby 2.2.3p100
 
          BUNDLED WITH
             #{Bundler::VERSION}
@@ -451,11 +494,27 @@ describe "bundle install with gem sources" do
     end
 
     it "should display a proper message to explain the problem" do
-      FileUtils.chmod(0500, bundled_app("vendor"))
+      FileUtils.chmod(0o500, bundled_app("vendor"))
 
-      bundle :install, :path => "vendor"
+      bundle :install, forgotten_command_line_options(:path => "vendor")
       expect(out).to include(bundled_app("vendor").to_s)
       expect(out).to include("grant write permissions")
+    end
+  end
+
+  describe "when bundle install is executed with unencoded authentication" do
+    before do
+      gemfile <<-G
+        source 'https://rubygems.org/'
+        gem "."
+      G
+    end
+
+    it "should display a helpful messag explaining how to fix it" do
+      bundle :install, :env => { "BUNDLE_RUBYGEMS__ORG" => "user:pass{word" }
+      expect(exitstatus).to eq(17) if exitstatus
+      expect(out).to eq("Please CGI escape your usernames and passwords before " \
+                        "setting them for authentication.")
     end
   end
 end

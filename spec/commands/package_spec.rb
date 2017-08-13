@@ -1,6 +1,6 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "bundle package" do
+RSpec.describe "bundle package" do
   context "with --gemfile" do
     it "finds the gemfile" do
       gemfile bundled_app("NotGemfile"), <<-G
@@ -11,7 +11,7 @@ describe "bundle package" do
       bundle "package --gemfile=NotGemfile"
 
       ENV["BUNDLE_GEMFILE"] = "NotGemfile"
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
   end
 
@@ -30,45 +30,127 @@ describe "bundle package" do
         expect(bundled_app("vendor/cache/bundler-0.9.gem")).to_not exist
       end
     end
+
     context "with a gemspec" do
+      context "that has the same name as the gem" do
+        before do
+          File.open(bundled_app("mygem.gemspec"), "w") do |f|
+            f.write <<-G
+              Gem::Specification.new do |s|
+                s.name = "mygem"
+                s.version = "0.1.1"
+                s.summary = ""
+                s.authors = ["gem author"]
+                s.add_development_dependency "nokogiri", "=1.4.2"
+              end
+            G
+          end
+        end
+
+        it "caches all dependencies except bundler and the gemspec specified gem" do
+          gemfile <<-D
+            source "file://#{gem_repo1}"
+            gem 'rack'
+            gemspec
+          D
+
+          bundle! "package --all"
+
+          expect(bundled_app("vendor/cache/rack-1.0.0.gem")).to exist
+          expect(bundled_app("vendor/cache/nokogiri-1.4.2.gem")).to exist
+          expect(bundled_app("vendor/cache/mygem-0.1.1.gem")).to_not exist
+          expect(bundled_app("vendor/cache/bundler-0.9.gem")).to_not exist
+        end
+      end
+
+      context "that has a different name as the gem" do
+        before do
+          File.open(bundled_app("mygem_diffname.gemspec"), "w") do |f|
+            f.write <<-G
+              Gem::Specification.new do |s|
+                s.name = "mygem"
+                s.version = "0.1.1"
+                s.summary = ""
+                s.authors = ["gem author"]
+                s.add_development_dependency "nokogiri", "=1.4.2"
+              end
+            G
+          end
+        end
+
+        it "caches all dependencies except bundler and the gemspec specified gem" do
+          gemfile <<-D
+            source "file://#{gem_repo1}"
+            gem 'rack'
+            gemspec
+          D
+
+          bundle! "package --all"
+
+          expect(bundled_app("vendor/cache/rack-1.0.0.gem")).to exist
+          expect(bundled_app("vendor/cache/nokogiri-1.4.2.gem")).to exist
+          expect(bundled_app("vendor/cache/mygem-0.1.1.gem")).to_not exist
+          expect(bundled_app("vendor/cache/bundler-0.9.gem")).to_not exist
+        end
+      end
+    end
+
+    context "with multiple gemspecs" do
       before do
         File.open(bundled_app("mygem.gemspec"), "w") do |f|
           f.write <<-G
             Gem::Specification.new do |s|
               s.name = "mygem"
               s.version = "0.1.1"
+              s.summary = ""
+              s.authors = ["gem author"]
               s.add_development_dependency "nokogiri", "=1.4.2"
             end
           G
         end
+        File.open(bundled_app("mygem_client.gemspec"), "w") do |f|
+          f.write <<-G
+            Gem::Specification.new do |s|
+              s.name = "mygem_test"
+              s.version = "0.1.1"
+              s.summary = ""
+              s.authors = ["gem author"]
+              s.add_development_dependency "weakling", "=0.0.3"
+            end
+          G
+        end
       end
-      it "caches all dependencies except bundler and the gemspec specified gem" do
+
+      it "caches all dependencies except bundler and the gemspec specified gems" do
         gemfile <<-D
           source "file://#{gem_repo1}"
           gem 'rack'
-          gemspec
+          gemspec :name => 'mygem'
+          gemspec :name => 'mygem_test'
         D
 
-        bundle "package --all"
-        sleep 20
+        bundle! "package --all"
+
         expect(bundled_app("vendor/cache/rack-1.0.0.gem")).to exist
         expect(bundled_app("vendor/cache/nokogiri-1.4.2.gem")).to exist
+        expect(bundled_app("vendor/cache/weakling-0.0.3.gem")).to exist
         expect(bundled_app("vendor/cache/mygem-0.1.1.gem")).to_not exist
+        expect(bundled_app("vendor/cache/mygem_test-0.1.1.gem")).to_not exist
         expect(bundled_app("vendor/cache/bundler-0.9.gem")).to_not exist
       end
     end
   end
 
-  context "with --path" do
+  context "with --path", :bundler => "< 2" do
     it "sets root directory for gems" do
       gemfile <<-D
         source "file://#{gem_repo1}"
         gem 'rack'
       D
 
-      bundle "package --path=#{bundled_app("test")}"
+      bundle! :package, forgotten_command_line_options(:path => bundled_app("test"))
 
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
       expect(bundled_app("test/vendor/cache/")).to exist
     end
   end
@@ -80,10 +162,22 @@ describe "bundle package" do
         gem 'rack'
       D
 
-      bundle "package --no-install"
+      bundle! "package --no-install"
 
-      should_not_be_installed "rack 1.0.0", :expect_err => true
+      expect(the_bundle).not_to include_gems "rack 1.0.0"
       expect(bundled_app("vendor/cache/rack-1.0.0.gem")).to exist
+    end
+
+    it "does not prevent installing gems with bundle install" do
+      gemfile <<-D
+        source "file://#{gem_repo1}"
+        gem 'rack'
+      D
+
+      bundle! "package --no-install"
+      bundle! "install"
+
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
   end
 
@@ -98,9 +192,37 @@ describe "bundle package" do
       expect(bundled_app("vendor/cache/rack-1.0.0.gem")).to exist
     end
   end
+
+  context "with --frozen" do
+    before do
+      gemfile <<-G
+        source "file://#{gem_repo1}"
+        gem "rack"
+      G
+      bundle "install"
+    end
+
+    subject { bundle :package, forgotten_command_line_options(:frozen => true) }
+
+    it "tries to install with frozen" do
+      bundle! "config deployment true"
+      gemfile <<-G
+        source "file://#{gem_repo1}"
+        gem "rack"
+        gem "rack-obama"
+      G
+      subject
+      expect(exitstatus).to eq(16) if exitstatus
+      expect(out).to include("deployment mode")
+      expect(out).to include("You have added to the Gemfile")
+      expect(out).to include("* rack-obama")
+      bundle "env"
+      expect(out).to include("frozen").or include("deployment")
+    end
+  end
 end
 
-describe "bundle install with gem sources" do
+RSpec.describe "bundle install with gem sources" do
   describe "when cached and locked" do
     it "does not hit the remote at all" do
       build_repo2
@@ -114,22 +236,22 @@ describe "bundle install with gem sources" do
       FileUtils.rm_rf gem_repo2
 
       bundle "install --local"
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
 
     it "does not hit the remote at all" do
       build_repo2
-      install_gemfile <<-G
+      install_gemfile! <<-G
         source "file://#{gem_repo2}"
         gem "rack"
       G
 
-      bundle :pack
+      bundle! :pack
       simulate_new_machine
       FileUtils.rm_rf gem_repo2
 
-      bundle "install --deployment"
-      should_be_installed "rack 1.0.0"
+      bundle! :install, forgotten_command_line_options(:deployment => true, :path => "vendor/bundle")
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
 
     it "does not reinstall already-installed gems" do
@@ -144,8 +266,8 @@ describe "bundle install with gem sources" do
       end
 
       bundle :install
-      expect(err).to be_empty
-      should_be_installed "rack 1.0"
+      expect(err).to lack_errors
+      expect(the_bundle).to include_gems "rack 1.0"
     end
 
     it "ignores cached gems for the wrong platform" do

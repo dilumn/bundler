@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Bundler
   class Fetcher
     class Base
@@ -20,7 +22,7 @@ module Bundler
         @fetch_uri ||= begin
           if remote_uri.host == "rubygems.org"
             uri = remote_uri.dup
-            uri.host = "bundler.rubygems.org"
+            uri.host = "index.rubygems.org"
             uri
           else
             remote_uri
@@ -28,12 +30,22 @@ module Bundler
         end
       end
 
-      def api_available?
-        api_fetcher?
+      def available?
+        true
       end
 
       def api_fetcher?
         false
+      end
+
+    private
+
+      def log_specs(debug_msg)
+        if Bundler.ui.debug?
+          Bundler.ui.debug debug_msg
+        else
+          Bundler.ui.info ".", false
+        end
       end
     end
   end

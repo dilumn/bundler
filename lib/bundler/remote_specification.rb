@@ -1,5 +1,6 @@
+# frozen_string_literal: true
+
 require "uri"
-require "rubygems/spec_fetcher"
 
 module Bundler
   # Represents a lazily loaded gem specification, where the full specification
@@ -11,13 +12,15 @@ module Bundler
     include Comparable
 
     attr_reader :name, :version, :platform
+    attr_writer :dependencies
     attr_accessor :source, :remote
 
     def initialize(name, version, platform, spec_fetcher)
       @name         = name
-      @version      = version
+      @version      = Gem::Version.create version
       @platform     = platform
       @spec_fetcher = spec_fetcher
+      @dependencies = nil
     end
 
     # Needed before installs, since the arch matters then and quick
@@ -49,6 +52,7 @@ module Bundler
     # once the remote gem is downloaded, the backend specification will
     # be swapped out.
     def __swap__(spec)
+      SharedHelpers.ensure_same_dependencies(self, dependencies, spec.dependencies)
       @_remote_specification = spec
     end
 
@@ -65,18 +69,46 @@ module Bundler
       [@name, @version, @platform == Gem::Platform::RUBY ? -1 : 1]
     end
 
+    def to_s
+      "#<#{self.class} name=#{name} version=#{version} platform=#{platform}>"
+    end
+
+    def dependencies
+      @dependencies ||= begin
+        deps = method_missing(:dependencies)
+
+        # allow us to handle when the specs dependencies are an array of array of string
+        # see https://github.com/bundler/bundler/issues/5797
+        deps = deps.map {|d| d.is_a?(Gem::Dependency) ? d : Gem::Dependency.new(*d) }
+
+        deps
+      end
+    end
+
+    def git_version
+      return unless loaded_from && source.is_a?(Bundler::Source::Git)
+      " #{source.revision[0..6]}"
+    end
+
   private
+
+    def to_ary
+      nil
+    end
 
     def _remote_specification
       @_remote_specification ||= @spec_fetcher.fetch_spec([@name, @version, @platform])
+      @_remote_specification || raise(GemspecError, "Gemspec data for #{full_name} was" \
+        " missing from the server! Try installing with `--full-index` as a workaround.")
     end
 
     def method_missing(method, *args, &blk)
-      if Gem::Specification.new.respond_to?(method)
-        _remote_specification.send(method, *args, &blk)
-      else
-        super
-      end
+      _remote_specification.send(method, *args, &blk)
     end
+
+    def respond_to?(method, include_all = false)
+      super || _remote_specification.respond_to?(method, include_all)
+    end
+    public :respond_to?
   end
 end

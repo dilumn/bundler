@@ -1,20 +1,9 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "Bundler.load" do
-  before :each do
-    system_gems "rack-1.0.0"
-    # clear memoized method results
-    # TODO: Don't reset internal ivars
-    Bundler.instance_eval do
-      @load = nil
-      @runtime = nil
-      @definition = nil
-    end
-  end
-
+RSpec.describe "Bundler.load" do
   describe "with a gemfile" do
     before(:each) do
-      gemfile <<-G
+      install_gemfile! <<-G
         source "file://#{gem_repo1}"
         gem "rack"
       G
@@ -42,6 +31,7 @@ describe "Bundler.load" do
         source "file://#{gem_repo1}"
         gem "rack"
       G
+      bundle! :install
     end
 
     it "provides a list of the env dependencies" do
@@ -83,13 +73,13 @@ describe "Bundler.load" do
 
   describe "when called twice" do
     it "doesn't try to load the runtime twice" do
-      system_gems "rack-1.0.0", "activesupport-2.3.5"
-      gemfile <<-G
+      install_gemfile! <<-G
+        source "file:#{gem_repo1}"
         gem "rack"
         gem "activesupport", :group => :test
       G
 
-      ruby <<-RUBY
+      ruby! <<-RUBY
         require "bundler"
         Bundler.setup :default
         Bundler.require :default
@@ -107,8 +97,8 @@ describe "Bundler.load" do
 
   describe "not hurting brittle rubygems" do
     it "does not inject #source into the generated YAML of the gem specs" do
-      system_gems "activerecord-2.3.2", "activesupport-2.3.2"
-      gemfile <<-G
+      install_gemfile! <<-G
+        source "file:#{gem_repo1}"
         gem "activerecord"
       G
 

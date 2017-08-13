@@ -1,6 +1,6 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "bundle licenses" do
+RSpec.describe "bundle licenses" do
   before :each do
     install_gemfile <<-G
       source "file://#{gem_repo1}"

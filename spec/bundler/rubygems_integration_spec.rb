@@ -1,21 +1,48 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe Bundler::RubygemsIntegration do
+RSpec.describe Bundler::RubygemsIntegration do
   it "uses the same chdir lock as rubygems", :rubygems => "2.1" do
     expect(Bundler.rubygems.ext_lock).to eq(Gem::Ext::Builder::CHDIR_MONITOR)
   end
 
   context "#validate" do
-    let(:spec) { double("spec", :summary => "") }
+    let(:spec) do
+      Gem::Specification.new do |s|
+        s.name = "to-validate"
+        s.version = "1.0.0"
+        s.loaded_from = __FILE__
+      end
+    end
+    subject { Bundler.rubygems.validate(spec) }
 
     it "skips overly-strict gemspec validation", :rubygems => "< 1.7" do
       expect(spec).to_not receive(:validate)
-      Bundler.rubygems.validate(spec)
+      subject
     end
 
     it "validates with packaging mode disabled", :rubygems => "1.7" do
       expect(spec).to receive(:validate).with(false)
-      Bundler.rubygems.validate(spec)
+      subject
+    end
+
+    it "should set a summary to avoid an overly-strict error", :rubygems => "~> 1.7.0" do
+      spec.summary = nil
+      expect { subject }.not_to raise_error
+      expect(spec.summary).to eq("")
+    end
+
+    context "with an invalid spec" do
+      before do
+        expect(spec).to receive(:validate).with(false).
+          and_raise(Gem::InvalidSpecificationException.new("TODO is not an author"))
+      end
+
+      it "should raise a Gem::InvalidSpecificationException and produce a helpful warning message",
+        :rubygems => "1.7" do
+        expect { subject }.to raise_error(Gem::InvalidSpecificationException,
+          "The gemspec at #{__FILE__} is not valid. "\
+          "Please fix this gemspec.\nThe validation error was 'TODO is not an author'\n")
+      end
     end
   end
 
@@ -23,6 +50,31 @@ describe Bundler::RubygemsIntegration do
     it "handles Gem::SystemExitException errors" do
       allow(Gem).to receive(:configuration) { raise Gem::SystemExitException.new(1) }
       expect { Bundler.rubygems.configuration }.to raise_error(Gem::SystemExitException)
+    end
+  end
+
+  describe "#download_gem", :rubygems => ">= 2.0" do
+    let(:bundler_retry) { double(Bundler::Retry) }
+    let(:retry) { double("Bundler::Retry") }
+    let(:uri) {  URI.parse("https://foo.bar") }
+    let(:path) { Gem.path.first }
+    let(:spec) do
+      spec = Bundler::RemoteSpecification.new("Foo", Gem::Version.new("2.5.2"),
+        Gem::Platform::RUBY, nil)
+      spec.remote = Bundler::Source::Rubygems::Remote.new(uri.to_s)
+      spec
+    end
+    let(:fetcher) { double("gem_remote_fetcher") }
+
+    it "succesfully downloads gem with retries" do
+      expect(Bundler.rubygems).to receive(:gem_remote_fetcher).and_return(fetcher)
+      expect(fetcher).to receive(:headers=).with("X-Gemfile-Source" => "https://foo.bar")
+      expect(Bundler::Retry).to receive(:new).with("download gem from #{uri}/").
+        and_return(bundler_retry)
+      expect(bundler_retry).to receive(:attempts).and_yield
+      expect(fetcher).to receive(:download).with(spec, uri, path)
+
+      Bundler.rubygems.download_gem(spec, uri, path)
     end
   end
 
@@ -42,7 +94,7 @@ describe Bundler::RubygemsIntegration do
         expect(fetcher).to receive(:fetch_path).with(uri + "specs.4.8.gz").and_return(specs_response)
         expect(fetcher).to receive(:fetch_path).with(uri + "prerelease_specs.4.8.gz").and_return(prerelease_specs_response)
         result = Bundler.rubygems.fetch_all_remote_specs(remote_with_mirror)
-        expect(result).to eq(uri => %w(specs prerelease_specs))
+        expect(result).to eq(%w[specs prerelease_specs])
       end
     end
 
@@ -55,7 +107,7 @@ describe Bundler::RubygemsIntegration do
         expect(fetcher).to receive(:fetch_path).with(uri + "specs.4.8.gz").and_return(specs_response)
         expect(fetcher).to receive(:fetch_path).with(uri + "prerelease_specs.4.8.gz").and_return(prerelease_specs_response)
         result = Bundler.rubygems.fetch_all_remote_specs(remote_no_mirror)
-        expect(result).to eq(uri => %w(specs prerelease_specs))
+        expect(result).to eq(%w[specs prerelease_specs])
       end
     end
   end

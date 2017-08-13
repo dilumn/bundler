@@ -1,20 +1,26 @@
+# frozen_string_literal: true
+
 module Bundler
   class Source
     class Path < Source
       autoload :Installer, "bundler/source/path/installer"
 
-      attr_reader :path, :options
+      attr_reader :path, :options, :root_path, :original_path
       attr_writer :name
       attr_accessor :version
 
-      DEFAULT_GLOB = "{,*,*/*}.gemspec"
+      protected :original_path
+
+      DEFAULT_GLOB = "{,*,*/*}.gemspec".freeze
 
       def initialize(options)
-        @options = options
+        @options = options.dup
         @glob = options["glob"] || DEFAULT_GLOB
 
         @allow_cached = false
         @allow_remote = false
+
+        @root_path = options["root_path"] || Bundler.root
 
         if options["path"]
           @path = Pathname.new(options["path"])
@@ -30,10 +36,12 @@ module Bundler
       end
 
       def remote!
+        @local_specs = nil
         @allow_remote = true
       end
 
       def cached!
+        @local_specs = nil
         @allow_cached = true
       end
 
@@ -42,8 +50,8 @@ module Bundler
       end
 
       def to_lock
-        out = "PATH\n"
-        out << "  remote: #{relative_path}\n"
+        out = String.new("PATH\n")
+        out << "  remote: #{lockfile_path}\n"
         out << "  glob: #{@glob}\n" unless @glob == DEFAULT_GLOB
         out << "  specs:\n"
       end
@@ -57,8 +65,8 @@ module Bundler
       end
 
       def eql?(other)
-        other.instance_of?(Path) &&
-          expanded_path == expand(other.path) &&
+        return unless other.class == self.class
+        expanded_original_path == other.expanded_original_path &&
           version == other.version
       end
 
@@ -68,16 +76,16 @@ module Bundler
         File.basename(expanded_path.to_s)
       end
 
-      def install(spec, force = false)
-        Bundler.ui.info "Using #{version_message(spec)} from #{self}"
-        generate_bin(spec, :disable_extensions)
+      def install(spec, options = {})
+        print_using_message "Using #{version_message(spec)} from #{self}"
+        generate_bin(spec, :disable_extensions => true)
         nil # no post-install message
       end
 
       def cache(spec, custom_path = nil)
         app_cache_path = app_cache_path(custom_path)
         return unless Bundler.settings[:cache_all]
-        return if expand(@original_path).to_s.index(Bundler.root.to_s + "/") == 0
+        return if expand(@original_path).to_s.index(root_path.to_s + "/") == 0
 
         unless @original_path.exist?
           raise GemNotFound, "Can't cache gem #{version_message(spec)} because #{self} is missing!"
@@ -104,6 +112,14 @@ module Bundler
         name
       end
 
+      def root
+        Bundler.root
+      end
+
+      def expanded_original_path
+        @expanded_original_path ||= expand(original_path)
+      end
+
     private
 
       def expanded_path
@@ -111,11 +127,16 @@ module Bundler
       end
 
       def expand(somepath)
-        somepath.expand_path(Bundler.root)
+        somepath.expand_path(root_path)
       rescue ArgumentError => e
         Bundler.ui.debug(e)
         raise PathError, "There was an error while trying to use the path " \
           "`#{somepath}`.\nThe error message was: #{e.message}."
+      end
+
+      def lockfile_path
+        return relative_path(original_path) if original_path.absolute?
+        expand(original_path).relative_path_from(Bundler.root)
       end
 
       def app_cache_path(custom_path = nil)
@@ -126,15 +147,28 @@ module Bundler
         SharedHelpers.in_bundle? && app_cache_path.exist?
       end
 
+      def load_gemspec(file)
+        return unless spec = Bundler.load_gemspec(file)
+        Bundler.rubygems.set_installed_by_version(spec)
+        spec
+      end
+
+      def validate_spec(spec)
+        Bundler.rubygems.validate(spec)
+      end
+
       def load_spec_files
         index = Index.new
 
         if File.directory?(expanded_path)
           # We sort depth-first since `<<` will override the earlier-found specs
           Dir["#{expanded_path}/#{@glob}"].sort_by {|p| -p.split(File::SEPARATOR).size }.each do |file|
-            next unless spec = Bundler.load_gemspec(file, :validate)
-            spec.loaded_from = file.to_s
+            next unless spec = load_gemspec(file)
             spec.source = self
+
+            # Validation causes extension_dir to be calculated, which depends
+            # on #source, so we validate here instead of load_gemspec
+            validate_spec(spec)
             index << spec
           end
 
@@ -154,28 +188,33 @@ module Bundler
               end
             end
           end
-        elsif File.exist?(expanded_path)
-          raise PathError, "The path `#{expanded_path}` is not a directory."
         else
-          raise PathError, "The path `#{expanded_path}` does not exist."
+          message = String.new("The path `#{expanded_path}` ")
+          message << if File.exist?(expanded_path)
+                       "is not a directory."
+                     else
+                       "does not exist."
+                     end
+          raise PathError, message
         end
 
         index
       end
 
-      def relative_path
-        if path.to_s.start_with?(Bundler.root.to_s)
-          return path.relative_path_from(Bundler.root)
+      def relative_path(path = self.path)
+        if path.to_s.start_with?(root_path.to_s)
+          return path.relative_path_from(root_path)
         end
         path
       end
 
-      def generate_bin(spec, disable_extensions = false)
+      def generate_bin(spec, options = {})
         gem_dir = Pathname.new(spec.full_gem_path)
 
         # Some gem authors put absolute paths in their gemspec
         # and we have to save them from themselves
         spec.files = spec.files.map do |p|
+          next p unless p =~ /\A#{Pathname::SEPARATOR_PAT}/
           next if File.directory?(p)
           begin
             Pathname.new(p).relative_path_from(gem_dir).to_s
@@ -184,14 +223,13 @@ module Bundler
           end
         end.compact
 
-        SharedHelpers.chdir(gem_dir) do
-          installer = Path::Installer.new(spec, :env_shebang => false)
-          run_hooks(:pre_install, installer)
-          installer.build_extensions unless disable_extensions
-          run_hooks(:post_build, installer)
-          installer.generate_bin
-          run_hooks(:post_install, installer)
-        end
+        installer = Path::Installer.new(
+          spec,
+          :env_shebang => false,
+          :disable_extensions => options[:disable_extensions],
+          :build_args => options[:build_args]
+        )
+        installer.post_install
       rescue Gem::InvalidSpecificationException => e
         Bundler.ui.warn "\n#{spec.name} at #{spec.full_gem_path} did not have a valid gemspec.\n" \
                         "This prevents bundler from installing bins or native extensions, but " \
@@ -203,19 +241,7 @@ module Bundler
                           "to modify their .gemspec so it can work with `gem build`."
         end
 
-        Bundler.ui.warn "The validation message from Rubygems was:\n  #{e.message}"
-      end
-
-      def run_hooks(type, installer)
-        hooks_meth = "#{type}_hooks"
-        return unless Gem.respond_to?(hooks_meth)
-        Gem.send(hooks_meth).each do |hook|
-          result = hook.call(installer)
-          next unless result == false
-          location = " at #{$1}" if hook.inspect =~ /@(.*:\d+)/
-          message = "#{type} hook#{location} failed for #{installer.spec.full_name}"
-          raise InstallHookError, message
-        end
+        Bundler.ui.warn "The validation message from RubyGems was:\n  #{e.message}"
       end
     end
   end

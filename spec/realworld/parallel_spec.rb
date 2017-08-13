@@ -1,6 +1,6 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "parallel", :realworld => true, :sometimes => true do
+RSpec.describe "parallel", :realworld => true, :sometimes => true do
   it "installs" do
     gemfile <<-G
       source "https://rubygems.org"
@@ -22,9 +22,6 @@ describe "parallel", :realworld => true, :sometimes => true do
 
     bundle "show faker"
     expect(out).to match(/faker/)
-
-    bundle "config jobs"
-    expect(out).to match(/: "4"/)
   end
 
   it "updates" do
@@ -41,7 +38,7 @@ describe "parallel", :realworld => true, :sometimes => true do
       gem 'i18n', '~> 0.6.0' # Because 0.7+ requires Ruby 1.9.3+
     G
 
-    bundle :update, :jobs => 4, :env => { "DEBUG" => "1" }
+    bundle :update, :jobs => 4, :env => { "DEBUG" => "1" }, :all => bundle_update_requires_all?
 
     if Bundler.rubygems.provides?(">= 2.1.0")
       expect(out).to match(/[1-3]: /)
@@ -54,9 +51,6 @@ describe "parallel", :realworld => true, :sometimes => true do
 
     bundle "show faker"
     expect(out).to match(/faker/)
-
-    bundle "config jobs"
-    expect(out).to match(/: "4"/)
   end
 
   it "works with --standalone" do

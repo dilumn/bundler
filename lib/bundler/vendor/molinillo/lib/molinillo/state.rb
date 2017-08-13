@@ -1,12 +1,15 @@
+# frozen_string_literal: true
+
 module Bundler::Molinillo
   # A state that a {Resolution} can be in
-  # @attr [String] name
-  # @attr [Array<Object>] requirements
-  # @attr [DependencyGraph] activated
-  # @attr [Object] requirement
-  # @attr [Object] possibility
-  # @attr [Integer] depth
-  # @attr [Set<Object>] conflicts
+  # @attr [String] name the name of the current requirement
+  # @attr [Array<Object>] requirements currently unsatisfied requirements
+  # @attr [DependencyGraph] activated the graph of activated dependencies
+  # @attr [Object] requirement the current requirement
+  # @attr [Object] possibilities the possibilities to satisfy the current requirement
+  # @attr [Integer] depth the depth of the resolution
+  # @attr [Hash] conflicts unresolved conflicts, indexed by dependency name
+  # @attr [Array<UnwindDetails>] unused_unwind_options unwinds for previous conflicts that weren't explored
   ResolutionState = Struct.new(
     :name,
     :requirements,
@@ -14,14 +17,15 @@ module Bundler::Molinillo
     :requirement,
     :possibilities,
     :depth,
-    :conflicts
+    :conflicts,
+    :unused_unwind_options
   )
 
   class ResolutionState
     # Returns an empty resolution state
     # @return [ResolutionState] an empty state
     def self.empty
-      new(nil, [], DependencyGraph.new, nil, nil, 0, Set.new)
+      new(nil, [], DependencyGraph.new, nil, nil, 0, {}, [])
     end
   end
 
@@ -35,12 +39,15 @@ module Bundler::Molinillo
       PossibilityState.new(
         name,
         requirements.dup,
-        activated.dup,
+        activated,
         requirement,
         [possibilities.pop],
         depth + 1,
-        conflicts.dup
-      )
+        conflicts.dup,
+        unused_unwind_options.dup
+      ).tap do |state|
+        state.activated.tag(state)
+      end
     end
   end
 

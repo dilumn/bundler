@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Bundler
   class Standalone
     def initialize(groups, definition)
@@ -33,16 +35,19 @@ module Bundler
     end
 
     def version_dir
-      "#{Bundler.ruby_version.engine}/#{RbConfig::CONFIG["ruby_version"]}"
+      "#{Bundler::RubyVersion.system.engine}/#{RbConfig::CONFIG["ruby_version"]}"
     end
 
     def bundler_path
-      File.join(Bundler.settings[:path], "bundler")
+      Bundler.root.join(Bundler.settings[:path], "bundler")
     end
 
     def gem_path(path, spec)
       full_path = Pathname.new(path).absolute? ? path : File.join(spec.full_gem_path, path)
       Pathname.new(full_path).relative_path_from(Bundler.root.join(bundler_path)).to_s
+    rescue TypeError
+      error_message = "#{spec.name} #{spec.version} has an invalid gemspec"
+      raise Gem::InvalidSpecificationException.new(error_message)
     end
   end
 end

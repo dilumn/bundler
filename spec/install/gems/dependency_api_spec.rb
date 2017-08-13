@@ -1,6 +1,6 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "gemcutter's dependency API" do
+RSpec.describe "gemcutter's dependency API" do
   let(:source_hostname) { "localgemserver.test" }
   let(:source_uri) { "http://#{source_hostname}" }
 
@@ -12,7 +12,7 @@ describe "gemcutter's dependency API" do
 
     bundle :install, :artifice => "endpoint"
     expect(out).to include("Fetching gem metadata from #{source_uri}")
-    should_be_installed "rack 1.0.0"
+    expect(the_bundle).to include_gems "rack 1.0.0"
   end
 
   it "should URI encode gem names" do
@@ -33,13 +33,14 @@ describe "gemcutter's dependency API" do
 
     bundle :install, :artifice => "endpoint"
     expect(out).to include("Fetching gem metadata from #{source_uri}/...")
-    should_be_installed(
+    expect(the_bundle).to include_gems(
       "rails 2.3.2",
       "actionpack 2.3.2",
       "activerecord 2.3.2",
       "actionmailer 2.3.2",
       "activeresource 2.3.2",
-      "activesupport 2.3.2")
+      "activesupport 2.3.2"
+    )
   end
 
   it "should handle multiple gem dependencies on the same gem" do
@@ -49,7 +50,7 @@ describe "gemcutter's dependency API" do
     G
 
     bundle :install, :artifice => "endpoint"
-    should_be_installed "net-sftp 1.1.1"
+    expect(the_bundle).to include_gems "net-sftp 1.1.1"
   end
 
   it "should use the endpoint when using --deployment" do
@@ -59,9 +60,9 @@ describe "gemcutter's dependency API" do
     G
     bundle :install, :artifice => "endpoint"
 
-    bundle "install --deployment", :artifice => "endpoint"
+    bundle! :install, forgotten_command_line_options(:deployment => true, :path => "vendor/bundle").merge(:artifice => "endpoint")
     expect(out).to include("Fetching gem metadata from #{source_uri}")
-    should_be_installed "rack 1.0.0"
+    expect(the_bundle).to include_gems "rack 1.0.0"
   end
 
   it "handles git dependencies that are in rubygems" do
@@ -79,7 +80,7 @@ describe "gemcutter's dependency API" do
 
     bundle :install, :artifice => "endpoint"
 
-    should_be_installed("rails 2.3.2")
+    expect(the_bundle).to include_gems("rails 2.3.2")
   end
 
   it "handles git dependencies that are in rubygems using --deployment" do
@@ -97,7 +98,7 @@ describe "gemcutter's dependency API" do
 
     bundle "install --deployment", :artifice => "endpoint"
 
-    should_be_installed("rails 2.3.2")
+    expect(the_bundle).to include_gems("rails 2.3.2")
   end
 
   it "doesn't fail if you only have a git gem with no deps when using --deployment" do
@@ -108,10 +109,9 @@ describe "gemcutter's dependency API" do
     G
 
     bundle "install", :artifice => "endpoint"
-    bundle "install --deployment", :artifice => "endpoint"
+    bundle! :install, forgotten_command_line_options(:deployment => true).merge(:artifice => "endpoint")
 
-    expect(exitstatus).to eq(0) if exitstatus
-    should_be_installed("foo 1.0")
+    expect(the_bundle).to include_gems("foo 1.0")
   end
 
   it "falls back when the API errors out" do
@@ -122,9 +122,9 @@ describe "gemcutter's dependency API" do
       gem "rcov"
     G
 
-    bundle :install, :fakeweb => "windows"
+    bundle :install, :artifice => "windows"
     expect(out).to include("Fetching source index from #{source_uri}")
-    should_be_installed "rcov 1.0.0"
+    expect(the_bundle).to include_gems "rcov 1.0.0"
   end
 
   it "falls back when hitting the Gemcutter Dependency Limit" do
@@ -141,7 +141,7 @@ describe "gemcutter's dependency API" do
     bundle :install, :artifice => "endpoint_fallback"
     expect(out).to include("Fetching source index from #{source_uri}")
 
-    should_be_installed(
+    expect(the_bundle).to include_gems(
       "activesupport 2.3.2",
       "actionpack 2.3.2",
       "actionmailer 2.3.2",
@@ -149,7 +149,8 @@ describe "gemcutter's dependency API" do
       "activesupport 2.3.2",
       "thin 1.0.0",
       "rack 1.0.0",
-      "rails 2.3.2")
+      "rails 2.3.2"
+    )
   end
 
   it "falls back when Gemcutter API doesn't return proper Marshal format" do
@@ -160,7 +161,7 @@ describe "gemcutter's dependency API" do
 
     bundle :install, :verbose => true, :artifice => "endpoint_marshal_fail"
     expect(out).to include("could not fetch from the dependency API, trying the full index")
-    should_be_installed "rack 1.0.0"
+    expect(the_bundle).to include_gems "rack 1.0.0"
   end
 
   it "falls back when the API URL returns 403 Forbidden" do
@@ -171,7 +172,7 @@ describe "gemcutter's dependency API" do
 
     bundle :install, :verbose => true, :artifice => "endpoint_api_forbidden"
     expect(out).to include("Fetching source index from #{source_uri}")
-    should_be_installed "rack 1.0.0"
+    expect(the_bundle).to include_gems "rack 1.0.0"
   end
 
   it "handles host redirects" do
@@ -181,7 +182,7 @@ describe "gemcutter's dependency API" do
     G
 
     bundle :install, :artifice => "endpoint_host_redirect"
-    should_be_installed "rack 1.0.0"
+    expect(the_bundle).to include_gems "rack 1.0.0"
   end
 
   it "handles host redirects without Net::HTTP::Persistent" do
@@ -205,7 +206,7 @@ describe "gemcutter's dependency API" do
 
     bundle :install, :artifice => "endpoint_host_redirect", :requires => [lib_path("disable_net_http_persistent.rb")]
     expect(out).to_not match(/Too many redirects/)
-    should_be_installed "rack 1.0.0"
+    expect(the_bundle).to include_gems "rack 1.0.0"
   end
 
   it "timeouts when Bundler::Fetcher redirects too much" do
@@ -227,7 +228,7 @@ describe "gemcutter's dependency API" do
 
       bundle "install --full-index", :artifice => "endpoint"
       expect(out).to include("Fetching source index from #{source_uri}")
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
 
     it "should use the modern index for update" do
@@ -236,13 +237,13 @@ describe "gemcutter's dependency API" do
         gem "rack"
       G
 
-      bundle "update --full-index", :artifice => "endpoint"
+      bundle! "update --full-index", :artifice => "endpoint", :all => bundle_update_requires_all?
       expect(out).to include("Fetching source index from #{source_uri}")
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
   end
 
-  it "fetches again when more dependencies are found in subsequent sources" do
+  it "fetches again when more dependencies are found in subsequent sources", :bundler => "< 2" do
     build_repo2 do
       build_gem "back_deps" do |s|
         s.add_dependency "foo"
@@ -257,7 +258,26 @@ describe "gemcutter's dependency API" do
     G
 
     bundle :install, :artifice => "endpoint_extra"
-    should_be_installed "back_deps 1.0"
+    expect(the_bundle).to include_gems "back_deps 1.0", "foo 1.0"
+  end
+
+  it "fetches again when more dependencies are found in subsequent sources using blocks" do
+    build_repo2 do
+      build_gem "back_deps" do |s|
+        s.add_dependency "foo"
+      end
+      FileUtils.rm_rf Dir[gem_repo2("gems/foo-*.gem")]
+    end
+
+    gemfile <<-G
+      source "#{source_uri}"
+      source "#{source_uri}/extra" do
+        gem "back_deps"
+      end
+    G
+
+    bundle :install, :artifice => "endpoint_extra"
+    expect(the_bundle).to include_gems "back_deps 1.0", "foo 1.0"
   end
 
   it "fetches gem versions even when those gems are already installed" do
@@ -279,10 +299,10 @@ describe "gemcutter's dependency API" do
       gem "rack", "1.2"
     G
     bundle :install, :artifice => "endpoint_extra_api"
-    should_be_installed "rack 1.2"
+    expect(the_bundle).to include_gems "rack 1.2"
   end
 
-  it "considers all possible versions of dependencies from all api gem sources" do
+  it "considers all possible versions of dependencies from all api gem sources", :bundler => "< 2" do
     # In this scenario, the gem "somegem" only exists in repo4.  It depends on specific version of activesupport that
     # exists only in repo1.  There happens also be a version of activesupport in repo4, but not the one that version 1.0.0
     # of somegem wants. This test makes sure that bundler actually finds version 1.2.3 of active support in the other
@@ -302,8 +322,33 @@ describe "gemcutter's dependency API" do
 
     bundle :install, :artifice => "endpoint_extra_api"
 
-    should_be_installed "somegem 1.0.0"
-    should_be_installed "activesupport 1.2.3"
+    expect(the_bundle).to include_gems "somegem 1.0.0"
+    expect(the_bundle).to include_gems "activesupport 1.2.3"
+  end
+
+  it "considers all possible versions of dependencies from all api gem sources using blocks" do
+    # In this scenario, the gem "somegem" only exists in repo4.  It depends on specific version of activesupport that
+    # exists only in repo1.  There happens also be a version of activesupport in repo4, but not the one that version 1.0.0
+    # of somegem wants. This test makes sure that bundler actually finds version 1.2.3 of active support in the other
+    # repo and installs it.
+    build_repo4 do
+      build_gem "activesupport", "1.2.0"
+      build_gem "somegem", "1.0.0" do |s|
+        s.add_dependency "activesupport", "1.2.3" # This version exists only in repo1
+      end
+    end
+
+    gemfile <<-G
+      source "#{source_uri}"
+      source "#{source_uri}/extra" do
+        gem 'somegem', '1.0.0'
+      end
+    G
+
+    bundle :install, :artifice => "endpoint_extra_api"
+
+    expect(the_bundle).to include_gems "somegem 1.0.0"
+    expect(the_bundle).to include_gems "activesupport 1.2.3"
   end
 
   it "prints API output properly with back deps" do
@@ -316,8 +361,9 @@ describe "gemcutter's dependency API" do
 
     gemfile <<-G
       source "#{source_uri}"
-      source "#{source_uri}/extra"
-      gem "back_deps"
+      source "#{source_uri}/extra" do
+        gem "back_deps"
+      end
     G
 
     bundle :install, :artifice => "endpoint_extra"
@@ -326,7 +372,7 @@ describe "gemcutter's dependency API" do
     expect(out).to include("Fetching source index from http://localgemserver.test/extra")
   end
 
-  it "does not fetch every spec if the index of gems is large when doing back deps" do
+  it "does not fetch every spec if the index of gems is large when doing back deps", :bundler => "< 2" do
     build_repo2 do
       build_gem "back_deps" do |s|
         s.add_dependency "foo"
@@ -347,7 +393,32 @@ describe "gemcutter's dependency API" do
     G
 
     bundle :install, :artifice => "endpoint_extra_missing"
-    should_be_installed "back_deps 1.0"
+    expect(the_bundle).to include_gems "back_deps 1.0"
+  end
+
+  it "does not fetch every spec if the index of gems is large when doing back deps using blocks" do
+    build_repo2 do
+      build_gem "back_deps" do |s|
+        s.add_dependency "foo"
+      end
+      build_gem "missing"
+      # need to hit the limit
+      1.upto(Bundler::Source::Rubygems::API_REQUEST_LIMIT) do |i|
+        build_gem "gem#{i}"
+      end
+
+      FileUtils.rm_rf Dir[gem_repo2("gems/foo-*.gem")]
+    end
+
+    gemfile <<-G
+      source "#{source_uri}"
+      source "#{source_uri}/extra" do
+        gem "back_deps"
+      end
+    G
+
+    bundle :install, :artifice => "endpoint_extra_missing"
+    expect(the_bundle).to include_gems "back_deps 1.0"
   end
 
   it "uses the endpoint if all sources support it" do
@@ -358,10 +429,10 @@ describe "gemcutter's dependency API" do
     G
 
     bundle :install, :artifice => "endpoint_api_missing"
-    should_be_installed "foo 1.0"
+    expect(the_bundle).to include_gems "foo 1.0"
   end
 
-  it "fetches again when more dependencies are found in subsequent sources using --deployment" do
+  it "fetches again when more dependencies are found in subsequent sources using --deployment", :bundler => "< 2" do
     build_repo2 do
       build_gem "back_deps" do |s|
         s.add_dependency "foo"
@@ -378,7 +449,28 @@ describe "gemcutter's dependency API" do
     bundle :install, :artifice => "endpoint_extra"
 
     bundle "install --deployment", :artifice => "endpoint_extra"
-    should_be_installed "back_deps 1.0"
+    expect(the_bundle).to include_gems "back_deps 1.0"
+  end
+
+  it "fetches again when more dependencies are found in subsequent sources using --deployment with blocks" do
+    build_repo2 do
+      build_gem "back_deps" do |s|
+        s.add_dependency "foo"
+      end
+      FileUtils.rm_rf Dir[gem_repo2("gems/foo-*.gem")]
+    end
+
+    gemfile <<-G
+      source "#{source_uri}"
+      source "#{source_uri}/extra" do
+        gem "back_deps"
+      end
+    G
+
+    bundle :install, :artifice => "endpoint_extra"
+
+    bundle "install --deployment", :artifice => "endpoint_extra"
+    expect(the_bundle).to include_gems "back_deps 1.0"
   end
 
   it "does not refetch if the only unmet dependency is bundler" do
@@ -401,10 +493,10 @@ describe "gemcutter's dependency API" do
       gem "rails"
     G
     bundle :install, :artifice => "endpoint"
-    should_be_installed "rails 2.3.2"
+    expect(the_bundle).to include_gems "rails 2.3.2"
   end
 
-  it "installs the binstubs" do
+  it "installs the binstubs", :bundler => "< 2" do
     gemfile <<-G
       source "#{source_uri}"
       gem "rack"
@@ -416,7 +508,7 @@ describe "gemcutter's dependency API" do
     expect(out).to eq("1.0.0")
   end
 
-  it "installs the bins when using --path and uses autoclean" do
+  it "installs the bins when using --path and uses autoclean", :bundler => "< 2" do
     gemfile <<-G
       source "#{source_uri}"
       gem "rack"
@@ -427,7 +519,7 @@ describe "gemcutter's dependency API" do
     expect(vendored_gems("bin/rackup")).to exist
   end
 
-  it "installs the bins when using --path and uses bundle clean" do
+  it "installs the bins when using --path and uses bundle clean", :bundler => "< 2" do
     gemfile <<-G
       source "#{source_uri}"
       gem "rack"
@@ -478,7 +570,7 @@ describe "gemcutter's dependency API" do
 
       bundle :install, :artifice => "endpoint_basic_authentication"
       expect(out).not_to include("#{user}:#{password}")
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
 
     it "strips http basic authentication creds for modern index" do
@@ -489,7 +581,7 @@ describe "gemcutter's dependency API" do
 
       bundle :install, :artifice => "endopint_marshal_fail_basic_authentication"
       expect(out).not_to include("#{user}:#{password}")
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
 
     it "strips http basic auth creds when it can't reach the server" do
@@ -502,7 +594,7 @@ describe "gemcutter's dependency API" do
       expect(out).not_to include("#{user}:#{password}")
     end
 
-    it "strips http basic auth creds when warning about ambiguous sources" do
+    it "strips http basic auth creds when warning about ambiguous sources", :bundler => "< 2" do
       gemfile <<-G
         source "#{basic_auth_source_uri}"
         source "file://#{gem_repo1}"
@@ -512,7 +604,7 @@ describe "gemcutter's dependency API" do
       bundle :install, :artifice => "endpoint_basic_authentication"
       expect(out).to include("Warning: the gem 'rack' was found in multiple sources.")
       expect(out).not_to include("#{user}:#{password}")
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
 
     it "does not pass the user / password to different hosts on redirect" do
@@ -522,7 +614,7 @@ describe "gemcutter's dependency API" do
       G
 
       bundle :install, :artifice => "endpoint_creds_diff_host"
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
 
     describe "with authentication details in bundle config" do
@@ -539,7 +631,7 @@ describe "gemcutter's dependency API" do
         bundle :install, :artifice => "endpoint_strict_basic_authentication"
 
         expect(out).to include("Fetching gem metadata from #{source_uri}")
-        should_be_installed "rack 1.0.0"
+        expect(the_bundle).to include_gems "rack 1.0.0"
       end
 
       it "reads authentication details by full url from bundle config" do
@@ -549,14 +641,14 @@ describe "gemcutter's dependency API" do
         bundle :install, :artifice => "endpoint_strict_basic_authentication"
 
         expect(out).to include("Fetching gem metadata from #{source_uri}")
-        should_be_installed "rack 1.0.0"
+        expect(the_bundle).to include_gems "rack 1.0.0"
       end
 
       it "should use the API" do
         bundle "config #{source_hostname} #{user}:#{password}"
         bundle :install, :artifice => "endpoint_strict_basic_authentication"
         expect(out).to include("Fetching gem metadata from #{source_uri}")
-        should_be_installed "rack 1.0.0"
+        expect(the_bundle).to include_gems "rack 1.0.0"
       end
 
       it "prefers auth supplied in the source uri" do
@@ -568,7 +660,7 @@ describe "gemcutter's dependency API" do
         bundle "config #{source_hostname} otheruser:wrong"
 
         bundle :install, :artifice => "endpoint_strict_basic_authentication"
-        should_be_installed "rack 1.0.0"
+        expect(the_bundle).to include_gems "rack 1.0.0"
       end
 
       it "shows instructions if auth is not provided for the source" do
@@ -594,7 +686,7 @@ describe "gemcutter's dependency API" do
         G
 
         bundle :install, :artifice => "endpoint_basic_authentication"
-        should_be_installed "rack 1.0.0"
+        expect(the_bundle).to include_gems "rack 1.0.0"
       end
     end
   end
@@ -626,7 +718,7 @@ describe "gemcutter's dependency API" do
   context "when SSL certificate verification fails" do
     it "explains what happened" do
       # Install a monkeypatch that reproduces the effects of openssl raising
-      # a certificate validation error when Rubygems tries to connect.
+      # a certificate validation error when RubyGems tries to connect.
       gemfile <<-G
         class Net::HTTP
           def start

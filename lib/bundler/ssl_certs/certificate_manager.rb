@@ -1,4 +1,6 @@
-require "fileutils"
+# frozen_string_literal: true
+
+require "bundler/vendored_fileutils"
 require "net/https"
 require "openssl"
 
@@ -47,7 +49,7 @@ module Bundler
     private
 
       def certificates_in(path)
-        Dir[File.join(path, "*.pem")].sort
+        Dir[File.join(path, "**/*.pem")].sort
       end
 
       def store

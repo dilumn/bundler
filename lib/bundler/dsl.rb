@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "bundler/dependency"
 require "bundler/ruby_dsl"
 
@@ -12,6 +14,9 @@ module Bundler
     end
 
     VALID_PLATFORMS = Bundler::Dependency::PLATFORM_MAP.keys.freeze
+
+    VALID_KEYS = %w[group groups git path glob name branch ref tag require submodules
+                    platform platforms type source install_if].freeze
 
     attr_reader :gemspecs
     attr_accessor :dependencies
@@ -28,48 +33,56 @@ module Bundler
       @env                  = nil
       @ruby_version         = nil
       @gemspecs             = []
+      @gemfile              = nil
+      @gemfiles             = []
       add_git_sources
     end
 
     def eval_gemfile(gemfile, contents = nil)
-      contents ||= Bundler.read_file(gemfile.to_s)
-      instance_eval(contents, gemfile.to_s, 1)
+      expanded_gemfile_path = Pathname.new(gemfile).expand_path(@gemfile && @gemfile.parent)
+      original_gemfile = @gemfile
+      @gemfile = expanded_gemfile_path
+      @gemfiles << expanded_gemfile_path
+      contents ||= Bundler.read_file(@gemfile.to_s)
+      instance_eval(contents.dup.untaint, gemfile.to_s, 1)
     rescue Exception => e
       message = "There was an error " \
         "#{e.is_a?(GemfileEvalError) ? "evaluating" : "parsing"} " \
         "`#{File.basename gemfile.to_s}`: #{e.message}"
 
       raise DSLError.new(message, gemfile, e.backtrace, contents)
+    ensure
+      @gemfile = original_gemfile
     end
 
     def gemspec(opts = nil)
-      path              = opts && opts[:path] || "."
-      glob              = opts && opts[:glob]
-      name              = opts && opts[:name] || "{,*}"
-      development_group = opts && opts[:development_group] || :development
-      expanded_path     = File.expand_path(path, Bundler.default_gemfile.dirname)
+      opts ||= {}
+      path              = opts[:path] || "."
+      glob              = opts[:glob]
+      name              = opts[:name]
+      development_group = opts[:development_group] || :development
+      expanded_path     = gemfile_root.join(path)
 
-      gemspecs = Dir[File.join(expanded_path, "#{name}.gemspec")]
+      gemspecs = Dir[File.join(expanded_path, "{,*}.gemspec")].map {|g| Bundler.load_gemspec(g) }.compact
+      gemspecs.reject! {|s| s.name != name } if name
+      Index.sort_specs(gemspecs)
+      specs_by_name_and_version = gemspecs.group_by {|s| [s.name, s.version] }
 
-      case gemspecs.size
+      case specs_by_name_and_version.size
       when 1
-        spec = Bundler.load_gemspec(gemspecs.first)
+        specs = specs_by_name_and_version.values.first
+        spec = specs.find {|s| s.match_platform(Bundler.local_platform) } || specs.first
 
-        unless spec
-          raise InvalidOption, "There was an error loading the gemspec at " \
-            "#{file}. Make sure you can build the gem, then try again"
-        end
+        @gemspecs << spec
 
         gem_platforms = Bundler::Dependency::REVERSE_PLATFORM_MAP[Bundler::GemHelpers.generic_local_platform]
-        gem spec.name, :path => path, :glob => glob, :platforms => gem_platforms
+        gem spec.name, :name => spec.name, :path => path, :glob => glob, :platforms => gem_platforms
 
         group(development_group) do
           spec.development_dependencies.each do |dep|
             gem dep.name, *(dep.requirement.as_list + [:type => :development])
           end
         end
-
-        @gemspecs << gemspecs.first
       when 0
         raise InvalidOption, "There are no gemspecs at #{expanded_path}"
       else
@@ -88,12 +101,11 @@ module Bundler
 
       # if there's already a dependency with this name we try to prefer one
       if current = @dependencies.find {|d| d.name == dep.name }
+        deleted_dep = @dependencies.delete(current) if current.type == :development
+
         if current.requirement != dep.requirement
-          if current.type == :development
-            @dependencies.delete current
-          elsif dep.type == :development
-            return
-          else
+          unless deleted_dep
+            return if dep.type == :development
             raise GemfileError, "You cannot specify the same gem twice with different version requirements.\n" \
                             "You specified: #{current.name} (#{current.requirement}) and #{dep.name} (#{dep.requirement})"
           end
@@ -101,15 +113,12 @@ module Bundler
         else
           Bundler.ui.warn "Your Gemfile lists the gem #{current.name} (#{current.requirement}) more than once.\n" \
                           "You should probably keep only one of them.\n" \
-                          "While it's not a problem now, it could cause errors if you change the version of just one of them later."
+                          "While it's not a problem now, it could cause errors if you change the version of one of them later."
         end
 
         if current.source != dep.source
-          if current.type == :development
-            @dependencies.delete current
-          elsif dep.type == :development
-            return
-          else
+          unless deleted_dep
+            return if dep.type == :development
             raise GemfileError, "You cannot specify the same gem twice coming from different sources.\n" \
                             "You specified that #{dep.name} (#{dep.requirement}) should come from " \
                             "#{current.source || "an unspecified source"} and #{dep.source}\n"
@@ -120,13 +129,28 @@ module Bundler
       @dependencies << dep
     end
 
-    def source(source, &blk)
+    def source(source, *args, &blk)
+      options = args.last.is_a?(Hash) ? args.pop.dup : {}
+      options = normalize_hash(options)
       source = normalize_source(source)
-      if block_given?
+
+      if options.key?("type")
+        options["type"] = options["type"].to_s
+        unless Plugin.source?(options["type"])
+          raise InvalidOption, "No plugin sources available for #{options["type"]}"
+        end
+
+        unless block_given?
+          raise InvalidOption, "You need to pass a block to #source with :type option"
+        end
+
+        source_opts = options.merge("uri" => source)
+        with_source(@sources.add_plugin_source(options["type"], source_opts), &blk)
+      elsif block_given?
         with_source(@sources.add_rubygems_source("remotes" => source), &blk)
       else
         check_primary_source_safety(@sources)
-        @sources.add_rubygems_remote(source)
+        @sources.global_rubygems_source = source
       end
     end
 
@@ -144,7 +168,26 @@ module Bundler
     end
 
     def path(path, options = {}, &blk)
-      with_source(@sources.add_path_source(normalize_hash(options).merge("path" => Pathname.new(path))), &blk)
+      unless block_given?
+        msg = "You can no longer specify a path source by itself. Instead, \n" \
+              "either use the :path option on a gem, or specify the gems that \n" \
+              "bundler should find in the path source by passing a block to \n" \
+              "the path method, like: \n\n" \
+              "    path 'dir/containing/rails' do\n" \
+              "      gem 'rails'\n" \
+              "    end\n\n"
+
+        raise DeprecatedError, msg if Bundler.feature_flag.disable_multisource?
+        SharedHelpers.major_deprecation(msg.strip)
+      end
+
+      source_options = normalize_hash(options).merge(
+        "path" => Pathname.new(path),
+        "root_path" => gemfile_root,
+        "gemspec" => gemspecs.find {|g| g.name == options["name"] }
+      )
+      source = @sources.add_path_source(source_options)
+      with_source(source, &blk)
     end
 
     def git(uri, options = {}, &blk)
@@ -163,7 +206,8 @@ module Bundler
     end
 
     def github(repo, options = {})
-      raise ArgumentError, "Github sources require a block" unless block_given?
+      raise ArgumentError, "GitHub sources require a block" unless block_given?
+      raise DeprecatedError, "The #github method has been removed" if Bundler.feature_flag.skip_default_git_sources?
       github_uri  = @git_sources["github"].call(repo)
       git_options = normalize_hash(options).merge("uri" => github_uri)
       git_source  = @sources.add_git_source(git_options)
@@ -171,16 +215,16 @@ module Bundler
     end
 
     def to_definition(lockfile, unlock)
-      Definition.new(lockfile, @dependencies, @sources, unlock, @ruby_version, @optional_groups)
+      Definition.new(lockfile, @dependencies, @sources, unlock, @ruby_version, @optional_groups, @gemfiles)
     end
 
     def group(*args, &blk)
-      opts = Hash === args.last ? args.pop.dup : {}
-      normalize_group_options(opts, args)
+      options = args.last.is_a?(Hash) ? args.pop.dup : {}
+      normalize_group_options(options, args)
 
       @groups.concat args
 
-      if opts["optional"]
+      if options["optional"]
         optional_groups = args - @optional_groups
         @optional_groups.concat optional_groups
       end
@@ -190,9 +234,9 @@ module Bundler
       args.each { @groups.pop }
     end
 
-    def install_if(*args, &blk)
+    def install_if(*args)
       @install_conditionals.concat args
-      blk.call
+      yield
     ensure
       args.each { @install_conditionals.pop }
     end
@@ -213,6 +257,10 @@ module Bundler
       @env = old
     end
 
+    def plugin(*args)
+      # Pass on
+    end
+
     def method_missing(name, *args)
       raise GemfileError, "Undefined local variable or method `#{name}' for Gemfile"
     end
@@ -220,7 +268,12 @@ module Bundler
   private
 
     def add_git_sources
+      return if Bundler.feature_flag.skip_default_git_sources?
+
       git_source(:github) do |repo_name|
+        warn_deprecated_git_source(:github, <<-'RUBY'.strip, 'Change any "reponame" :github sources to "username/reponame".')
+"https://github.com/#{repo_name}.git"
+        RUBY
         # It would be better to use https instead of the git protocol, but this
         # can break deployment of existing locked bundles when switching between
         # different versions of Bundler. The change will be made in 2.0, which
@@ -235,13 +288,31 @@ module Bundler
         #     "https://github.com/#{repo_name}.git"
         #   end
         repo_name = "#{repo_name}/#{repo_name}" unless repo_name.include?("/")
-        "git://github.com/#{repo_name}.git"
+        # TODO: 2.0 upgrade this setting to the default
+        if Bundler.settings["github.https"]
+          Bundler::SharedHelpers.major_deprecation "The `github.https` setting will be removed"
+          "https://github.com/#{repo_name}.git"
+        else
+          "git://github.com/#{repo_name}.git"
+        end
       end
 
-      git_source(:gist) {|repo_name| "https://gist.github.com/#{repo_name}.git" }
+      # TODO: 2.0 remove this deprecated git source
+      git_source(:gist) do |repo_name|
+        warn_deprecated_git_source(:gist, '"https://gist.github.com/#{repo_name}.git"')
 
+        "https://gist.github.com/#{repo_name}.git"
+      end
+
+      # TODO: 2.0 remove this deprecated git source
       git_source(:bitbucket) do |repo_name|
-        user_name, repo_name = repo_name.split "/"
+        warn_deprecated_git_source(:bitbucket, <<-'RUBY'.strip)
+user_name, repo_name = repo_name.split("/")
+repo_name ||= user_name
+"https://#{user_name}@bitbucket.org/#{user_name}/#{repo_name}.git"
+        RUBY
+
+        user_name, repo_name = repo_name.split("/")
         repo_name ||= user_name
         "https://#{user_name}@bitbucket.org/#{user_name}/#{repo_name}.git"
       end
@@ -266,7 +337,7 @@ module Bundler
     end
 
     def valid_keys
-      @valid_keys ||= %w(group groups git path glob name branch ref tag require submodules platform platforms type source install_if)
+      @valid_keys ||= VALID_KEYS
     end
 
     def normalize_options(name, version, opts)
@@ -275,6 +346,9 @@ module Bundler
       end
       if name =~ /\s/
         raise GemfileError, %('#{name}' is not a valid gem name because it contains whitespace)
+      end
+      if name.empty?
+        raise GemfileError, %(an empty gem name is not valid)
       end
 
       normalize_hash(opts)
@@ -313,7 +387,7 @@ module Bundler
         opts["git"] = @git_sources[git_name].call(opts[git_name])
       end
 
-      %w(git path).each do |type|
+      %w[git path].each do |type|
         next unless param = opts[type]
         if version.first && version.first =~ /^\s*=?\s*(\d[^\s]*)\s*$/
           options = opts.merge("name" => name, "version" => $1)
@@ -324,8 +398,8 @@ module Bundler
         opts["source"] = source
       end
 
-      opts["source"] ||= @source
-      opts["env"] ||= @env
+      opts["source"]         ||= @source
+      opts["env"]            ||= @env
       opts["platforms"]      = platforms.dup
       opts["group"]          = groups
       opts["should_include"] = install_if
@@ -335,30 +409,38 @@ module Bundler
       normalize_hash(opts)
 
       groups = groups.map {|group| ":#{group}" }.join(", ")
-      validate_keys("group #{groups}", opts, %w(optional))
+      validate_keys("group #{groups}", opts, %w[optional])
 
       opts["optional"] ||= false
     end
 
     def validate_keys(command, opts, valid_keys)
       invalid_keys = opts.keys - valid_keys
-      if invalid_keys.any?
-        message = "You passed #{invalid_keys.map {|k| ":" + k }.join(", ")} "
-        message << if invalid_keys.size > 1
-                     "as options for #{command}, but they are invalid."
-                   else
-                     "as an option for #{command}, but it is invalid."
-                   end
 
-        message << " Valid options are: #{valid_keys.join(", ")}"
-        raise InvalidOption, message
+      git_source = opts.keys & @git_sources.keys.map(&:to_s)
+      if opts["branch"] && !(opts["git"] || opts["github"] || git_source.any?)
+        raise GemfileError, %(The `branch` option for `#{command}` is not allowed. Only gems with a git source can specify a branch)
       end
+
+      return true unless invalid_keys.any?
+
+      message = String.new
+      message << "You passed #{invalid_keys.map {|k| ":" + k }.join(", ")} "
+      message << if invalid_keys.size > 1
+                   "as options for #{command}, but they are invalid."
+                 else
+                   "as an option for #{command}, but it is invalid."
+                 end
+
+      message << " Valid options are: #{valid_keys.join(", ")}."
+      message << " You may be able to resolve this by upgrading Bundler to the newest version."
+      raise InvalidOption, message
     end
 
     def normalize_source(source)
       case source
       when :gemcutter, :rubygems, :rubyforge
-        Bundler.ui.warn "The source :#{source} is deprecated because HTTP " \
+        Bundler::SharedHelpers.major_deprecation "The source :#{source} is deprecated because HTTP " \
           "requests are insecure.\nPlease change your source to 'https://" \
           "rubygems.org' if possible, or 'http://rubygems.org' if not."
         "http://rubygems.org"
@@ -369,22 +451,43 @@ module Bundler
       end
     end
 
-    def check_primary_source_safety(source)
-      return unless source.rubygems_primary_remotes.any?
+    def check_primary_source_safety(source_list)
+      return if source_list.rubygems_primary_remotes.empty? && source_list.global_rubygems_source.nil?
 
-      if Bundler.settings[:disable_multisource]
-        raise GemspecError, "Warning: this Gemfile contains multiple primary sources. " \
+      if Bundler.feature_flag.disable_multisource?
+        msg = "This Gemfile contains multiple primary sources. " \
           "Each source after the first must include a block to indicate which gems " \
-          "should come from that source. To downgrade this error to a warning, run " \
-          "`bundle config --delete disable_multisource`"
+          "should come from that source"
+        unless Bundler.feature_flag.bundler_2_mode?
+          msg += ". To downgrade this error to a warning, run " \
+            "`bundle config --delete disable_multisource`"
+        end
+        raise GemfileEvalError, msg
       else
-        Bundler.ui.warn "Warning: this Gemfile contains multiple primary sources. " \
+        Bundler::SharedHelpers.major_deprecation "Your Gemfile contains multiple primary sources. " \
           "Using `source` more than once without a block is a security risk, and " \
           "may result in installing unexpected gems. To resolve this warning, use " \
           "a block to indicate which gems should come from the secondary source. " \
           "To upgrade this warning to an error, run `bundle config " \
           "disable_multisource true`."
       end
+    end
+
+    def warn_deprecated_git_source(name, replacement, additional_message = nil)
+      # TODO: 2.0 remove deprecation
+      additional_message &&= " #{additional_message}"
+      replacement = if replacement.count("\n").zero?
+        "{|repo_name| #{replacement} }"
+      else
+        "do |repo_name|\n#{replacement.to_s.gsub(/^/, "      ")}\n    end"
+      end
+
+      Bundler::SharedHelpers.major_deprecation <<-EOS
+The :#{name} git source is deprecated, and will be removed in Bundler 2.0.#{additional_message} Add this code to the top of your Gemfile to ensure it continues to work:
+
+    git_source(:#{name}) #{replacement}
+
+      EOS
     end
 
     class DSLError < GemfileError
@@ -448,7 +551,7 @@ module Bundler
         @to_s ||= begin
           trace_line, description = parse_line_number_from_description
 
-          m = "\n[!] "
+          m = String.new("\n[!] ")
           m << description
           m << ". Bundler cannot continue.\n"
 
@@ -461,8 +564,8 @@ module Bundler
 
           lines      = contents.lines.to_a
           indent     = " #  "
-          indicator  = indent.tr('#', ">")
-          first_line = (line_numer.zero?)
+          indicator  = indent.tr("#", ">")
+          first_line = line_numer.zero?
           last_line  = (line_numer == (lines.count - 1))
 
           m << "\n"
@@ -486,6 +589,11 @@ module Bundler
         end
         [trace_line, description]
       end
+    end
+
+    def gemfile_root
+      @gemfile ||= Bundler.default_gemfile
+      @gemfile.dirname
     end
   end
 end

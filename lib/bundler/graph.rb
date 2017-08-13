@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "set"
 module Bundler
   class Graph
@@ -16,7 +18,6 @@ module Bundler
       @node_options      = {}
       @edge_options      = {}
 
-      _patching_gem_dependency_class
       _populate_relations
     end
 
@@ -31,25 +32,20 @@ module Bundler
     def _populate_relations
       parent_dependencies = _groups.values.to_set.flatten
       loop do
-        if parent_dependencies.empty?
-          break
-        else
-          tmp = Set.new
-          parent_dependencies.each do |dependency|
-            # if the dependency is a prerelease, allow to_spec to be non-nil
-            dependency.prerelease = true
+        break if parent_dependencies.empty?
 
-            child_dependencies = dependency.to_spec.runtime_dependencies.to_set
-            @relations[dependency.name] += child_dependencies.map(&:name).to_set
-            tmp += child_dependencies
+        tmp = Set.new
+        parent_dependencies.each do |dependency|
+          child_dependencies = spec_for_dependency(dependency).runtime_dependencies.to_set
+          @relations[dependency.name] += child_dependencies.map(&:name).to_set
+          tmp += child_dependencies
 
-            @node_options[dependency.name] = _make_label(dependency, :node)
-            child_dependencies.each do |c_dependency|
-              @edge_options["#{dependency.name}_#{c_dependency.name}"] = _make_label(c_dependency, :edge)
-            end
+          @node_options[dependency.name] = _make_label(dependency, :node)
+          child_dependencies.each do |c_dependency|
+            @edge_options["#{dependency.name}_#{c_dependency.name}"] = _make_label(c_dependency, :edge)
           end
-          parent_dependencies = tmp
         end
+        parent_dependencies = tmp
       end
     end
 
@@ -75,7 +71,7 @@ module Bundler
       when :node
         if symbol_or_string_or_dependency.is_a?(Gem::Dependency)
           label = symbol_or_string_or_dependency.name.dup
-          label << "\n#{symbol_or_string_or_dependency.to_spec.version}" if @show_version
+          label << "\n#{spec_for_dependency(symbol_or_string_or_dependency).version}" if @show_version
         else
           label = symbol_or_string_or_dependency.to_s
         end
@@ -91,25 +87,8 @@ module Bundler
       label.nil? ? {} : { :label => label }
     end
 
-    def _patching_gem_dependency_class
-      # method borrow from rubygems/dependency.rb
-      # redefinition of matching_specs will also redefine to_spec and to_specs
-      Gem::Dependency.class_eval do
-        def matching_specs(platform_only = false)
-          matches = Bundler.load.specs.select do |spec|
-            name == spec.name &&
-              requirement.satisfied_by?(spec.version)
-          end
-
-          if platform_only
-            matches.select! do |spec|
-              Gem::Platform.match spec.platform
-            end
-          end
-
-          matches = matches.sort_by(&:sort_obj) # HACK: shouldn't be needed
-        end
-      end
+    def spec_for_dependency(dependency)
+      @env.requested_specs.find {|s| s.name == dependency.name }
     end
 
     class GraphVizClient

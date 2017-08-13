@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "bundler/cli/common"
 
 module Bundler
@@ -12,7 +14,7 @@ module Bundler
 
     def run
       Bundler.ui.silence do
-        Bundler.definition.validate_ruby!
+        Bundler.definition.validate_runtime!
         Bundler.load.lock
       end
 
@@ -63,6 +65,7 @@ module Bundler
       else
         definition.resolve_with_cache!
       end
+      Bundler.reset!
       definition.specs
     end
 

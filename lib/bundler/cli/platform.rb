@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Bundler
   class CLI::Platform
     attr_reader :options
@@ -7,8 +9,10 @@ module Bundler
 
     def run
       platforms, ruby_version = Bundler.ui.silence do
+        locked_ruby_version = Bundler.locked_gems && Bundler.locked_gems.ruby_version
+        gemfile_ruby_version = Bundler.definition.ruby_version && Bundler.definition.ruby_version.single_version_string
         [Bundler.definition.platforms.map {|p| "* #{p}" },
-         Bundler.definition.ruby_version]
+         locked_ruby_version || gemfile_ruby_version]
       end
       output = []
 
@@ -26,7 +30,7 @@ module Bundler
           output << "Your Gemfile specifies a Ruby version requirement:\n* #{ruby_version}"
 
           begin
-            Bundler.definition.validate_ruby!
+            Bundler.definition.validate_runtime!
             output << "Your current platform satisfies the Ruby version requirement."
           rescue RubyVersionMismatch => e
             output << e.message

@@ -1,7 +1,8 @@
-require "spec_helper"
+# frozen_string_literal: true
+
 require "thread"
 
-describe "fetching dependencies with a mirrored source", :rubygems => ">= 2.0" do
+RSpec.describe "fetching dependencies with a mirrored source", :realworld => true, :rubygems => ">= 2.0" do
   let(:mirror) { "https://server.example.org" }
   let(:original) { "http://127.0.0.1:#{@port}" }
 
@@ -11,6 +12,7 @@ describe "fetching dependencies with a mirrored source", :rubygems => ">= 2.0" d
   end
 
   after do
+    Artifice.deactivate
     @t.kill
     @t.join
   end
@@ -21,11 +23,11 @@ describe "fetching dependencies with a mirrored source", :rubygems => ">= 2.0" d
       gem 'weakling'
     G
 
-    bundle :install
+    bundle :install, :artifice => nil
 
     expect(out).to include("Installing weakling")
     expect(out).to include("Bundle complete")
-    should_be_installed "weakling 0.0.3"
+    expect(the_bundle).to include_gems "weakling 0.0.3"
   end
 
   private
@@ -42,7 +44,8 @@ describe "fetching dependencies with a mirrored source", :rubygems => ">= 2.0" d
                          :Host      => "0.0.0.0",
                          :Port      => @port,
                          :server    => "webrick",
-                         :AccessLog => [])
+                         :AccessLog => [],
+                         :Logger    => Spec::SilentLogger.new)
     end.run
 
     wait_for_server("127.0.0.1", @port)

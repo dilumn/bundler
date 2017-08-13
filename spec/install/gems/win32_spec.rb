@@ -1,6 +1,6 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "bundle install with win32-generated lockfile" do
+RSpec.describe "bundle install with win32-generated lockfile" do
   it "should read lockfile" do
     File.open(bundled_app("Gemfile.lock"), "wb") do |f|
       f << "GEM\r\n"

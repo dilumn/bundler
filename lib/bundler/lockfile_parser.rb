@@ -1,4 +1,4 @@
-require "strscan"
+# frozen_string_literal: true
 
 # Some versions of the Bundler 1.1 RC series introduced corrupted
 # lockfiles. There were two major problems:
@@ -14,21 +14,54 @@ module Bundler
   class LockfileParser
     attr_reader :sources, :dependencies, :specs, :platforms, :bundler_version, :ruby_version
 
-    BUNDLED      = "BUNDLED WITH"
-    DEPENDENCIES = "DEPENDENCIES"
-    PLATFORMS    = "PLATFORMS"
-    RUBY         = "RUBY VERSION"
-    GIT          = "GIT"
-    GEM          = "GEM"
-    PATH         = "PATH"
-    SPECS        = "  specs:"
+    BUNDLED      = "BUNDLED WITH".freeze
+    DEPENDENCIES = "DEPENDENCIES".freeze
+    PLATFORMS    = "PLATFORMS".freeze
+    RUBY         = "RUBY VERSION".freeze
+    GIT          = "GIT".freeze
+    GEM          = "GEM".freeze
+    PATH         = "PATH".freeze
+    PLUGIN       = "PLUGIN SOURCE".freeze
+    SPECS        = "  specs:".freeze
     OPTIONS      = /^  ([a-z]+): (.*)$/i
-    SOURCE       = [GIT, GEM, PATH]
+    SOURCE       = [GIT, GEM, PATH, PLUGIN].freeze
+
+    SECTIONS_BY_VERSION_INTRODUCED = {
+      # The strings have to be dup'ed for old RG on Ruby 2.3+
+      # TODO: remove dup in Bundler 2.0
+      Gem::Version.create("1.0".dup) => [DEPENDENCIES, PLATFORMS, GIT, GEM, PATH].freeze,
+      Gem::Version.create("1.10".dup) => [BUNDLED].freeze,
+      Gem::Version.create("1.12".dup) => [RUBY].freeze,
+      Gem::Version.create("1.13".dup) => [PLUGIN].freeze,
+    }.freeze
+
+    KNOWN_SECTIONS = SECTIONS_BY_VERSION_INTRODUCED.values.flatten.freeze
+
+    ENVIRONMENT_VERSION_SECTIONS = [BUNDLED, RUBY].freeze
+
+    def self.sections_in_lockfile(lockfile_contents)
+      lockfile_contents.scan(/^\w[\w ]*$/).uniq
+    end
+
+    def self.unknown_sections_in_lockfile(lockfile_contents)
+      sections_in_lockfile(lockfile_contents) - KNOWN_SECTIONS
+    end
+
+    def self.sections_to_ignore(base_version = nil)
+      base_version &&= base_version.release
+      base_version ||= Gem::Version.create("1.0".dup)
+      attributes = []
+      SECTIONS_BY_VERSION_INTRODUCED.each do |version, introduced|
+        next if version <= base_version
+        attributes += introduced
+      end
+      attributes
+    end
 
     def initialize(lockfile)
       @platforms    = []
       @sources      = []
-      @dependencies = []
+      @dependencies = {}
       @state        = nil
       @specs        = {}
 
@@ -57,8 +90,8 @@ module Bundler
           send("parse_#{@state}", line)
         end
       end
-      @sources << @rubygems_aggregate
-      @specs = @specs.values
+      @sources << @rubygems_aggregate unless Bundler.feature_flag.lockfile_uses_separate_rubygems_sources?
+      @specs = @specs.values.sort_by(&:identifier)
       warn_for_outdated_bundler_version
     rescue ArgumentError => e
       Bundler.ui.debug(e)
@@ -75,8 +108,8 @@ module Bundler
         raise LockfileError, "You must use Bundler #{bundler_version.segments.first} or greater with this lockfile."
       when 0
         if current_version < bundler_version
-          Bundler.ui.warn "Warning: the running version of Bundler is older " \
-               "than the version that created the lockfile. We suggest you " \
+          Bundler.ui.warn "Warning: the running version of Bundler (#{current_version}) is older " \
+               "than the version that created the lockfile (#{bundler_version}). We suggest you " \
                "upgrade to the latest version of Bundler by running `gem " \
                "install bundler#{prerelease_text}`.\n"
         end
@@ -86,17 +119,14 @@ module Bundler
   private
 
     TYPES = {
-      GIT  => Bundler::Source::Git,
-      GEM  => Bundler::Source::Rubygems,
-      PATH => Bundler::Source::Path,
-    }
+      GIT    => Bundler::Source::Git,
+      GEM    => Bundler::Source::Rubygems,
+      PATH   => Bundler::Source::Path,
+      PLUGIN => Bundler::Plugin,
+    }.freeze
 
     def parse_source(line)
       case line
-      when GIT, GEM, PATH
-        @current_source = nil
-        @opts = {}
-        @type = line
       when SPECS
         case @type
         when PATH
@@ -111,10 +141,19 @@ module Bundler
             @sources << @current_source
           end
         when GEM
-          Array(@opts["remote"]).each do |url|
-            @rubygems_aggregate.add_remote(url)
+          if Bundler.feature_flag.lockfile_uses_separate_rubygems_sources?
+            @opts["remotes"] = @opts.delete("remote")
+            @current_source = TYPES[@type].from_lock(@opts)
+            @sources << @current_source
+          else
+            Array(@opts["remote"]).each do |url|
+              @rubygems_aggregate.add_remote(url)
+            end
+            @current_source = @rubygems_aggregate
           end
-          @current_source = @rubygems_aggregate
+        when PLUGIN
+          @current_source = Plugin.source_from_lock(@opts)
+          @sources << @current_source
         end
       when OPTIONS
         value = $2
@@ -129,57 +168,71 @@ module Bundler
         else
           @opts[key] = value
         end
+      when *SOURCE
+        @current_source = nil
+        @opts = {}
+        @type = line
       else
         parse_spec(line)
       end
     end
 
-    NAME_VERSION = '(?! )(.*?)(?: \(([^-]*)(?:-(.*))?\))?'
-    NAME_VERSION_2 = /^ {2}#{NAME_VERSION}(!)?$/
-    NAME_VERSION_4 = /^ {4}#{NAME_VERSION}$/
-    NAME_VERSION_6 = /^ {6}#{NAME_VERSION}$/
+    space = / /
+    NAME_VERSION = /
+      ^(#{space}{2}|#{space}{4}|#{space}{6})(?!#{space}) # Exactly 2, 4, or 6 spaces at the start of the line
+      (.*?)                                              # Name
+      (?:#{space}\(([^-]*)                               # Space, followed by version
+      (?:-(.*))?\))?                                     # Optional platform
+      (!)?                                               # Optional pinned marker
+      $                                                  # Line end
+    /xo
 
     def parse_dependency(line)
-      if line =~ NAME_VERSION_2
-        name = $1
-        version = $2
-        pinned = $4
-        version = version.split(",").map(&:strip) if version
+      return unless line =~ NAME_VERSION
+      spaces = $1
+      return unless spaces.size == 2
+      name = $2
+      version = $3
+      pinned = $5
 
-        dep = Bundler::Dependency.new(name, version)
+      version = version.split(",").map(&:strip) if version
 
-        if pinned && dep.name != "bundler"
-          spec = @specs.find {|_, v| v.name == dep.name }
-          dep.source = spec.last.source if spec
+      dep = Bundler::Dependency.new(name, version)
 
-          # Path sources need to know what the default name / version
-          # to use in the case that there are no gemspecs present. A fake
-          # gemspec is created based on the version set on the dependency
-          # TODO: Use the version from the spec instead of from the dependency
-          if version && version.size == 1 && version.first =~ /^\s*= (.+)\s*$/ && dep.source.is_a?(Bundler::Source::Path)
-            dep.source.name    = name
-            dep.source.version = $1
-          end
+      if pinned && dep.name != "bundler"
+        spec = @specs.find {|_, v| v.name == dep.name }
+        dep.source = spec.last.source if spec
+
+        # Path sources need to know what the default name / version
+        # to use in the case that there are no gemspecs present. A fake
+        # gemspec is created based on the version set on the dependency
+        # TODO: Use the version from the spec instead of from the dependency
+        if version && version.size == 1 && version.first =~ /^\s*= (.+)\s*$/ && dep.source.is_a?(Bundler::Source::Path)
+          dep.source.name    = name
+          dep.source.version = $1
         end
-
-        @dependencies << dep
       end
+
+      @dependencies[dep.name] = dep
     end
 
     def parse_spec(line)
-      if line =~ NAME_VERSION_4
-        name = $1
-        version = Gem::Version.new($2)
-        platform = $3 ? Gem::Platform.new($3) : Gem::Platform::RUBY
+      return unless line =~ NAME_VERSION
+      spaces = $1
+      name = $2
+      version = $3
+      platform = $4
+
+      if spaces.size == 4
+        version = Gem::Version.new(version)
+        platform = platform ? Gem::Platform.new(platform) : Gem::Platform::RUBY
         @current_spec = LazySpecification.new(name, version, platform)
         @current_spec.source = @current_source
 
         # Avoid introducing multiple copies of the same spec (caused by
         # duplicate GIT sections)
         @specs[@current_spec.identifier] ||= @current_spec
-      elsif line =~ NAME_VERSION_6
-        name = $1
-        version = $2
+      elsif spaces.size == 6
         version = version.split(",").map(&:strip) if version
         dep = Gem::Dependency.new(name, version)
         @current_spec.dependencies << dep
@@ -192,9 +245,8 @@ module Bundler
 
     def parse_bundled_with(line)
       line = line.strip
-      if Gem::Version.correct?(line)
-        @bundler_version = Gem::Version.create(line)
-      end
+      return unless Gem::Version.correct?(line)
+      @bundler_version = Gem::Version.create(line)
     end
 
     def parse_ruby(line)

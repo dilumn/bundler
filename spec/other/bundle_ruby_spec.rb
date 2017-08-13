@@ -1,22 +1,6 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "bundle_ruby" do
-  context "when run" do
-    it "displays a deprecation warning" do
-      gemfile <<-G
-        source "file://#{gem_repo1}"
-        ruby "1.9.3", :engine => 'ruby', :engine_version => '1.9.3'
-
-        gem "foo"
-      G
-
-      bundle_ruby :expect_err => true
-
-      expect(err).to eq("Warning: bundle_ruby will be deprecated in " \
-                        "Bundler 2.0.0.")
-    end
-  end
-
+RSpec.describe "bundle_ruby" do
   context "without patchlevel" do
     it "returns the ruby version" do
       gemfile <<-G
@@ -26,7 +10,7 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
 
       expect(out).to include("ruby 1.9.3")
     end
@@ -39,7 +23,7 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
 
       expect(out).to include("ruby 1.9.3")
     end
@@ -52,7 +36,7 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
 
       expect(out).to include("ruby 1.8.7 (jruby 1.6.5)")
     end
@@ -65,7 +49,7 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
 
       expect(out).to include("ruby 1.8.7 (rbx 1.2.4)")
     end
@@ -78,10 +62,10 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true, :exitstatus => true
+      bundle_ruby
       expect(exitstatus).not_to eq(0) if exitstatus
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
       expect(out).to include("Please define :engine_version")
     end
 
@@ -93,10 +77,10 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true, :exitstatus => true
+      bundle_ruby
       expect(exitstatus).not_to eq(0) if exitstatus
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
       expect(out).to include("Please define :engine")
     end
 
@@ -108,10 +92,10 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true, :exitstatus => true
+      bundle_ruby
       expect(exitstatus).not_to eq(0) if exitstatus
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
       expect(out).to include("ruby_version must match the :engine_version for MRI")
     end
 
@@ -122,7 +106,7 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
 
       expect(out).to include("No ruby version specified")
     end
@@ -137,7 +121,7 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
 
       expect(out).to include("ruby 1.9.3p429")
     end
@@ -150,7 +134,7 @@ describe "bundle_ruby" do
         gem "foo"
       G
 
-      bundle_ruby :expect_err => true
+      bundle_ruby
 
       expect(out).to include("ruby 1.9.3p392 (jruby 1.7.4)")
     end

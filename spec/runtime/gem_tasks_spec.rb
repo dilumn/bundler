@@ -1,6 +1,6 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "require 'bundler/gem_tasks'" do
+RSpec.describe "require 'bundler/gem_tasks'" do
   before :each do
     bundled_app("foo.gemspec").open("w") do |f|
       f.write <<-GEMSPEC

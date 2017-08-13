@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Bundler
   class CLI::Config
     attr_reader :name, :options, :scope, :thor
@@ -9,10 +11,9 @@ module Bundler
       @thor = thor
       @name = peek = args.shift
       @scope = "global"
-      if peek && peek =~ /^\-\-/
-        @name = args.shift
-        @scope = $'
-      end
+      return unless peek && peek.start_with?("--")
+      @name = args.shift
+      @scope = peek[2..-1]
     end
 
     def run
@@ -33,6 +34,13 @@ module Bundler
       end
 
       if args.empty?
+        if options[:parseable]
+          if value = Bundler.settings[name]
+            Bundler.ui.info("#{name}=#{value}")
+          end
+          return
+        end
+
         confirm(name)
         return
       end
@@ -44,11 +52,20 @@ module Bundler
   private
 
     def confirm_all
-      Bundler.ui.confirm "Settings are listed in order of priority. The top value will be used.\n"
-      Bundler.settings.all.each do |setting|
-        Bundler.ui.confirm "#{setting}"
-        show_pretty_values_for(setting)
-        Bundler.ui.confirm ""
+      if @options[:parseable]
+        thor.with_padding do
+          Bundler.settings.all.each do |setting|
+            val = Bundler.settings[setting]
+            Bundler.ui.info "#{setting}=#{val}"
+          end
+        end
+      else
+        Bundler.ui.confirm "Settings are listed in order of priority. The top value will be used.\n"
+        Bundler.settings.all.each do |setting|
+          Bundler.ui.confirm "#{setting}"
+          show_pretty_values_for(setting)
+          Bundler.ui.confirm ""
+        end
       end
     end
 
@@ -59,7 +76,7 @@ module Bundler
 
     def new_value
       pathname = Pathname.new(args.join(" "))
-      if name.match(/\Alocal\./) && pathname.directory?
+      if name.start_with?("local.") && pathname.directory?
         pathname.expand_path.to_s
       else
         args.join(" ")
@@ -68,7 +85,9 @@ module Bundler
 
     def message
       locations = Bundler.settings.locations(name)
-      if scope == "global"
+      if @options[:parseable]
+        "#{name}=#{new_value}" if new_value
+      elsif scope == "global"
         if locations[:local]
           "Your application has set #{name} to #{locations[:local].inspect}. " \
             "This will override the global value you are currently setting"
@@ -94,7 +113,7 @@ module Bundler
     end
 
     def valid_scope?(scope)
-      %w(delete local global).include?(scope)
+      %w[delete local global].include?(scope)
     end
   end
 end

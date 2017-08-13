@@ -1,18 +1,28 @@
+# frozen_string_literal: true
+
 require "pathname"
 
 module Bundler
+  class CLI
+    Bundler.require_thor_actions
+    include Thor::Actions
+  end
+
   class CLI::Gem
     TEST_FRAMEWORK_VERSIONS = {
       "rspec" => "3.0",
       "minitest" => "5.0"
-    }
+    }.freeze
 
     attr_reader :options, :gem_name, :thor, :name, :target
 
     def initialize(options, gem_name, thor)
       @options = options
       @gem_name = resolve_name(gem_name)
+
       @thor = thor
+      thor.behavior = :invoke
+      thor.destination_root = nil
 
       @name = @gem_name
       @target = SharedHelpers.pwd.join(gem_name)
@@ -28,8 +38,11 @@ module Bundler
       constant_name = name.gsub(/-[_-]*(?![_-]|$)/) { "::" }.gsub(/([_-]+|(::)|^)(.|$)/) { $2.to_s + $3.upcase }
       constant_array = constant_name.split("::")
 
-      git_user_name = `git config user.name`.chomp
-      git_user_email = `git config user.email`.chomp
+      git_installed = Bundler.git_present?
+
+      git_author_name = git_installed ? `git config user.name`.chomp : ""
+      github_username = git_installed ? `git config github.user`.chomp : ""
+      git_user_email = git_installed ? `git config user.email`.chomp : ""
 
       config = {
         :name             => name,
@@ -38,18 +51,18 @@ module Bundler
         :makefile_path    => "#{underscored_name}/#{underscored_name}",
         :constant_name    => constant_name,
         :constant_array   => constant_array,
-        :author           => git_user_name.empty? ? "TODO: Write your name" : git_user_name,
+        :author           => git_author_name.empty? ? "TODO: Write your name" : git_author_name,
         :email            => git_user_email.empty? ? "TODO: Write your email address" : git_user_email,
         :test             => options[:test],
         :ext              => options[:ext],
-        :bin              => options[:bin],
-        :bundler_version  => bundler_dependency_version
+        :exe              => options[:exe],
+        :bundler_version  => bundler_dependency_version,
+        :github_username  => github_username.empty? ? "[USERNAME]" : github_username
       }
       ensure_safe_gem_name(name, constant_array)
 
       templates = {
         "Gemfile.tt" => "Gemfile",
-        "gitignore.tt" => ".gitignore",
         "lib/newgem.rb.tt" => "lib/#{namespaced_path}.rb",
         "lib/newgem/version.rb.tt" => "lib/#{namespaced_path}/version.rb",
         "newgem.gemspec.tt" => "#{name}.gemspec",
@@ -59,10 +72,12 @@ module Bundler
         "bin/setup.tt" => "bin/setup"
       }
 
-      executables = %w(
+      executables = %w[
         bin/console
         bin/setup
-      )
+      ]
+
+      templates.merge!("gitignore.tt" => ".gitignore") if Bundler.git_present?
 
       if test_framework = ask_and_set_test_framework
         config[:test] = test_framework
@@ -109,7 +124,7 @@ module Bundler
         templates.merge!("CODE_OF_CONDUCT.md.tt" => "CODE_OF_CONDUCT.md")
       end
 
-      templates.merge!("exe/newgem.tt" => "exe/#{name}") if options[:bin]
+      templates.merge!("exe/newgem.tt" => "exe/#{name}") if config[:exe]
 
       if options[:ext]
         templates.merge!(
@@ -120,25 +135,30 @@ module Bundler
       end
 
       templates.each do |src, dst|
-        thor.template("newgem/#{src}", target.join(dst), config)
+        destination = target.join(dst)
+        SharedHelpers.filesystem_access(destination) do
+          thor.template("newgem/#{src}", destination, config)
+        end
       end
 
       executables.each do |file|
         path = target.join(file)
-        executable = (path.stat.mode | 0111)
+        executable = (path.stat.mode | 0o111)
         path.chmod(executable)
       end
 
-      Bundler.ui.info "Initializing git repo in #{target}"
-      Dir.chdir(target) do
-        `git init`
-        `git add .`
+      if Bundler.git_present?
+        Bundler.ui.info "Initializing git repo in #{target}"
+        Dir.chdir(target) do
+          `git init`
+          `git add .`
+        end
       end
 
-      if options[:edit]
-        # Open gemspec in editor
-        thor.run("#{options["edit"]} \"#{target.join("#{name}.gemspec")}\"")
-      end
+      # Open gemspec in editor
+      open_editor(options["edit"], target.join("#{name}.gemspec")) if options[:edit]
+    rescue Errno::EEXIST => e
+      raise GenericSystemCallError.new(e, "There was a conflict while creating the new gem.")
     end
 
   private
@@ -202,10 +222,27 @@ module Bundler
       if name =~ /^\d/
         Bundler.ui.error "Invalid gem name #{name} Please give a name which does not start with numbers."
         exit 1
-      elsif constant_array.inject(Object) {|c, s| (c.const_defined?(s) && c.const_get(s)) || break }
-        Bundler.ui.error "Invalid gem name #{name} constant #{constant_array.join("::")} is already in use. Please choose another gem name."
-        exit 1
       end
+
+      constant_name = constant_array.join("::")
+
+      existing_constant = constant_array.inject(Object) do |c, s|
+        defined = begin
+          c.const_defined?(s)
+        rescue NameError
+          Bundler.ui.error "Invalid gem name #{name} -- `#{constant_name}` is an invalid constant name"
+          exit 1
+        end
+        (defined && c.const_get(s)) || break
+      end
+
+      return unless existing_constant
+      Bundler.ui.error "Invalid gem name #{name} constant #{constant_name} is already in use. Please choose another gem name."
+      exit 1
+    end
+
+    def open_editor(editor, file)
+      thor.run(%(#{editor} "#{file}"))
     end
   end
 end

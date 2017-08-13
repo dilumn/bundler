@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "pathname"
 
 if defined?(Gem::QuickLoader)
@@ -7,6 +9,16 @@ end
 
 require "rubygems"
 require "rubygems/specification"
+
+begin
+  # Possible use in Gem::Specification#source below and require
+  # shouldn't be deferred.
+  require "rubygems/source"
+rescue LoadError
+  # Not available before RubyGems 2.0.0, ignore
+  nil
+end
+
 require "bundler/match_platform"
 
 module Gem
@@ -15,15 +27,28 @@ module Gem
   class Specification
     attr_accessor :remote, :location, :relative_loaded_from
 
-    remove_method :source if instance_methods(false).include?(:source)
-    attr_accessor :source
+    if instance_methods(false).map(&:to_sym).include?(:source)
+      remove_method :source
+      attr_writer :source
+      def source
+        (defined?(@source) && @source) || Gem::Source::Installed.new
+      end
+    else
+      attr_accessor :source
+    end
 
     alias_method :rg_full_gem_path, :full_gem_path
     alias_method :rg_loaded_from,   :loaded_from
 
+    attr_writer :full_gem_path unless instance_methods.include?(:full_gem_path=)
+
     def full_gem_path
-      if source.respond_to?(:path)
-        Pathname.new(loaded_from).dirname.expand_path(Bundler.root).to_s.untaint
+      # this cannot check source.is_a?(Bundler::Plugin::API::Source)
+      # because that _could_ trip the autoload, and if there are unresolved
+      # gems at that time, this method could be called inside another require,
+      # thus raising with that constant being undefined. Better to check a method
+      if source.respond_to?(:path) || (source.respond_to?(:bundler_plugin_api_source?) && source.bundler_plugin_api_source?)
+        Pathname.new(loaded_from).dirname.expand_path(source.root).to_s.untaint
       else
         rg_full_gem_path
       end
@@ -52,7 +77,7 @@ module Gem
     if method_defined?(:extension_dir)
       alias_method :rg_extension_dir, :extension_dir
       def extension_dir
-        @extension_dir ||= if source.respond_to?(:extension_dir_name)
+        @bundler_extension_dir ||= if source.respond_to?(:extension_dir_name)
           File.expand_path(File.join(extensions_dir, source.extension_dir_name))
         else
           rg_extension_dir
@@ -78,7 +103,7 @@ module Gem
     end
 
     def to_gemfile(path = nil)
-      gemfile = "source 'https://rubygems.org'\n"
+      gemfile = String.new("source 'https://rubygems.org'\n")
       gemfile << dependencies_to_gemfile(nondevelopment_dependencies)
       unless development_dependencies.empty?
         gemfile << "\n"
@@ -94,7 +119,7 @@ module Gem
   private
 
     def dependencies_to_gemfile(dependencies, group = nil)
-      gemfile = ""
+      gemfile = String.new
       if dependencies.any?
         gemfile << "group :#{group} do\n" if group
         dependencies.each do |dependency|
@@ -111,7 +136,7 @@ module Gem
   end
 
   class Dependency
-    attr_accessor :source, :groups
+    attr_accessor :source, :groups, :all_sources
 
     alias_method :eql?, :==
 
@@ -122,19 +147,19 @@ module Gem
     end
 
     def to_yaml_properties
-      instance_variables.reject {|p| ["@source", "@groups"].include?(p.to_s) }
+      instance_variables.reject {|p| ["@source", "@groups", "@all_sources"].include?(p.to_s) }
     end
 
     def to_lock
-      out = "  #{name}"
-      unless requirement == Gem::Requirement.default
+      out = String.new("  #{name}")
+      unless requirement.none?
         reqs = requirement.requirements.map {|o, v| "#{o} #{v}" }.sort.reverse
         out << " (#{reqs.join(", ")})"
       end
       out
     end
 
-    # Backport of performance enhancement added to Rubygems 1.4
+    # Backport of performance enhancement added to RubyGems 1.4
     def matches_spec?(spec)
       # name can be a Regexp, so use ===
       return false unless name === spec.name
@@ -145,10 +170,20 @@ module Gem
   end
 
   class Requirement
-    # Backport of performance enhancement added to Rubygems 1.4
+    # Backport of performance enhancement added to RubyGems 1.4
     def none?
-      @none ||= (to_s == ">= 0")
+      # note that it might be tempting to replace with with RubyGems 2.0's
+      # improved implementation. Don't. It requires `DefaultRequirement` to be
+      # defined, and more importantantly, these overrides are not used when the
+      # running RubyGems defines these methods
+      to_s == ">= 0"
     end unless allocate.respond_to?(:none?)
+
+    # Backport of performance enhancement added to RubyGems 2.2
+    def exact?
+      return false unless @requirements.size == 1
+      @requirements[0][0] == "="
+    end unless allocate.respond_to?(:exact?)
   end
 
   class Platform
