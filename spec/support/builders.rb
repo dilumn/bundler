@@ -563,17 +563,24 @@ module Spec
         write "ext/extconf.rb", <<-RUBY
           require "mkmf"
 
+
           # exit 1 unless with_config("simple")
 
-          extension_name = "very_simple_binary_c"
-          dir_config extension_name
+          extension_name = "#{name}_c"
+          if extra_lib_dir = with_config("ext-lib")
+            # add extra libpath if --with-ext-lib is
+            # passed in as a build_arg
+            dir_config extension_name, nil, extra_lib_dir
+          else
+            dir_config extension_name
+          end
           create_makefile extension_name
         RUBY
-        write "ext/very_simple_binary.c", <<-C
+        write "ext/#{name}.c", <<-C
           #include "ruby.h"
 
-          void Init_very_simple_binary_c() {
-            rb_define_module("VerySimpleBinaryInC");
+          void Init_#{name}_c() {
+            rb_define_module("#{Builders.constantize(name)}_IN_C");
           }
         C
       end
