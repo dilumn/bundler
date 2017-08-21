@@ -7,7 +7,7 @@ module Bundler
   # We're doing this because we might write tests that deal
   # with other versions of bundler and we are unsure how to
   # handle this better.
-  VERSION = "1.15.3" unless defined?(::Bundler::VERSION)
+  VERSION = "1.15.4" unless defined?(::Bundler::VERSION)
 
   def self.overwrite_loaded_gem_version
     begin
@@ -21,4 +21,8 @@ module Bundler
   end
   private_class_method :overwrite_loaded_gem_version
   overwrite_loaded_gem_version
+
+  def self.bundler_major_version
+    @bundler_major_version ||= VERSION.split(".").first.to_i
+  end
 end
