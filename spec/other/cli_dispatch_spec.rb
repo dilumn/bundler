@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "spec_helper"
 
 describe "bundle command names" do
@@ -14,7 +15,7 @@ describe "bundle command names" do
   end
 
   it "print a friendly error when ambiguous" do
-    bundle "i"
+    bundle "in"
     expect(err).to eq("")
     expect(out).to match(/Ambiguous command/)
   end

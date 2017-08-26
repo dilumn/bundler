@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "uri"
 require "rubygems/spec_fetcher"
 
@@ -8,13 +9,14 @@ module Bundler
   # full specification will only be fetched when necessary.
   class RemoteSpecification
     include MatchPlatform
+    include Comparable
 
     attr_reader :name, :version, :platform
-    attr_accessor :source, :source_uri
+    attr_accessor :source, :remote
 
     def initialize(name, version, platform, spec_fetcher)
       @name         = name
-      @version      = version
+      @version      = Gem::Version.create version
       @platform     = platform
       @spec_fetcher = spec_fetcher
     end
@@ -26,10 +28,21 @@ module Bundler
     end
 
     def full_name
-      if platform == Gem::Platform::RUBY or platform.nil? then
+      if platform == Gem::Platform::RUBY || platform.nil?
         "#{@name}-#{@version}"
       else
         "#{@name}-#{@version}-#{platform}"
+      end
+    end
+
+    # Compare this specification against another object. Using sort_obj
+    # is compatible with Gem::Specification and other Bundler or RubyGems
+    # objects. Otherwise, use the default Object comparison.
+    def <=>(other)
+      if other.respond_to?(:sort_obj)
+        sort_obj <=> other.sort_obj
+      else
+        super
       end
     end
 
@@ -37,13 +50,28 @@ module Bundler
     # once the remote gem is downloaded, the backend specification will
     # be swapped out.
     def __swap__(spec)
-      @specification = spec
+      @_remote_specification = spec
+    end
+
+    # Create a delegate used for sorting. This strategy is copied from
+    # RubyGems 2.23 and ensures that Bundler's specifications can be
+    # compared and sorted with RubyGems' own specifications.
+    #
+    # @see #<=>
+    # @see Gem::Specification#sort_obj
+    #
+    # @return [Array] an object you can use to compare and sort this
+    #   specification against other specifications
+    def sort_obj
+      [@name, @version, @platform == Gem::Platform::RUBY ? -1 : 1]
     end
 
   private
 
     def _remote_specification
-      @specification ||= @spec_fetcher.fetch_spec([@name, @version, @platform])
+      @_remote_specification ||= @spec_fetcher.fetch_spec([@name, @version, @platform])
+      @_remote_specification || raise(GemspecError, "Gemspec data for #{full_name} was" \
+        " missing from the server! Try installing with `--full-index` as a workaround.")
     end
 
     def method_missing(method, *args, &blk)

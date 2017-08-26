@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 module Bundler
   class CLI::Cache
     attr_reader :options
@@ -9,6 +10,7 @@ module Bundler
       Bundler.definition.validate_ruby!
       Bundler.definition.resolve_with_cache!
       setup_cache_all
+      Bundler.settings[:cache_all_platforms] = options["all-platforms"] if options.key?("all-platforms")
       Bundler.load.cache
       Bundler.settings[:no_prune] = true if options["no-prune"]
       Bundler.load.lock
@@ -29,6 +31,5 @@ module Bundler
           "on Bundler 2.0."
       end
     end
-
   end
 end

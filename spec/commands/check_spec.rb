@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "spec_helper"
 
 describe "bundle check" do
@@ -7,8 +8,8 @@ describe "bundle check" do
       gem "rails"
     G
 
-    bundle :check, :exitstatus => true
-    expect(@exitstatus).to eq(0)
+    bundle :check
+    expect(exitstatus).to eq(0) if exitstatus
     expect(out).to eq("The Gemfile's dependencies are satisfied")
   end
 
@@ -67,8 +68,8 @@ describe "bundle check" do
       gem "rails"
     G
 
-    bundle :check, :exitstatus => true
-    expect(@exitstatus).to be > 0
+    bundle :check
+    expect(exitstatus).to be > 0 if exitstatus
     expect(out).to include("Bundler can't satisfy your Gemfile's dependencies.")
   end
 
@@ -101,8 +102,8 @@ describe "bundle check" do
     G
 
     bundle "install --without foo"
-    bundle "check", :exitstatus => true
-    expect(@exitstatus).to eq(0)
+    bundle "check"
+    expect(exitstatus).to eq(0) if exitstatus
     expect(out).to include("The Gemfile's dependencies are satisfied")
   end
 
@@ -119,9 +120,9 @@ describe "bundle check" do
       gem "rack"
     G
 
-    bundle "check", :exitstatus => true
+    bundle "check"
     expect(out).to include("* rack (1.0.0)")
-    expect(@exitstatus).to eq(1)
+    expect(exitstatus).to eq(1) if exitstatus
   end
 
   it "ignores missing gems restricted to other platforms" do
@@ -187,14 +188,14 @@ describe "bundle check" do
   end
 
   it "outputs an error when the default Gemfile is not found" do
-    bundle :check, :exitstatus => true
-    expect(@exitstatus).to eq(10)
+    bundle :check
+    expect(exitstatus).to eq(10) if exitstatus
     expect(out).to include("Could not locate Gemfile")
   end
 
   it "does not output fatal error message" do
-    bundle :check, :exitstatus => true
-    expect(@exitstatus).to eq(10)
+    bundle :check
+    expect(exitstatus).to eq(10) if exitstatus
     expect(out).not_to include("Unfortunately, a fatal error has occurred. ")
   end
 
@@ -207,7 +208,7 @@ describe "bundle check" do
     simulate_new_machine
     bundle "check"
     last_out = out
-    3.times do |i|
+    3.times do
       bundle :check
       expect(out).to eq(last_out)
       expect(err).to be_empty
@@ -224,8 +225,8 @@ describe "bundle check" do
     bundle "install --deployment"
     FileUtils.rm(bundled_app("Gemfile.lock"))
 
-    bundle :check, :exitstatus => true
-    expect(exitstatus).not_to eq(0)
+    bundle :check
+    expect(exitstatus).not_to eq(0) if exitstatus
   end
 
   context "--path" do
@@ -240,15 +241,28 @@ describe "bundle check" do
     end
 
     it "returns success" do
-      bundle "check --path vendor/bundle", :exitstatus => true
-      expect(@exitstatus).to eq(0)
+      bundle "check --path vendor/bundle"
+      expect(exitstatus).to eq(0) if exitstatus
       expect(out).to eq("The Gemfile's dependencies are satisfied")
     end
 
     it "should write to .bundle/config" do
-      bundle "check --path vendor/bundle", :exitstatus => true
-      bundle "check", :exitstatus => true
-      expect(@exitstatus).to eq(0)
+      bundle "check --path vendor/bundle"
+      bundle "check"
+      expect(exitstatus).to eq(0) if exitstatus
+    end
+  end
+
+  context "--path vendor/bundle after installing gems in the default directory" do
+    it "returns false" do
+      install_gemfile <<-G
+        source "file://#{gem_repo1}"
+        gem "rails"
+      G
+
+      bundle "check --path vendor/bundle"
+      expect(exitstatus).to eq(1) if exitstatus
+      expect(out).to match(/The following gems are missing/)
     end
   end
 
@@ -263,8 +277,8 @@ describe "bundle check" do
 
     it "returns success when the Gemfile is satisfied" do
       bundle :install
-      bundle :check, :exitstatus => true
-      expect(@exitstatus).to eq(0)
+      bundle :check
+      expect(exitstatus).to eq(0) if exitstatus
       expect(out).to eq("The Gemfile's dependencies are satisfied")
     end
 
@@ -273,6 +287,62 @@ describe "bundle check" do
       bundle :check
       expect(out).to match(/The following gems are missing/)
       expect(out).to include("* rack (1.0")
+    end
+  end
+
+  describe "BUNDLED WITH" do
+    def lock_with(bundler_version = nil)
+      lock = <<-L
+        GEM
+          remote: file:#{gem_repo1}/
+          specs:
+            rack (1.0.0)
+
+        PLATFORMS
+          #{generic_local_platform}
+
+        DEPENDENCIES
+          rack
+      L
+
+      if bundler_version
+        lock += "\n        BUNDLED WITH\n           #{bundler_version}\n"
+      end
+
+      lock
+    end
+
+    before do
+      install_gemfile <<-G
+        source "file://#{gem_repo1}"
+        gem "rack"
+      G
+    end
+
+    context "is not present" do
+      it "does not change the lock" do
+        lockfile lock_with(nil)
+        bundle :check
+        lockfile_should_be lock_with(nil)
+      end
+    end
+
+    context "is newer" do
+      it "does not change the lock but warns" do
+        lockfile lock_with(Bundler::VERSION.succ)
+        bundle :check
+        expect(out).to include("Bundler is older than the version that created the lockfile")
+        expect(err).to eq("")
+        lockfile_should_be lock_with(Bundler::VERSION.succ)
+      end
+    end
+
+    context "is older" do
+      it "does not change the lock" do
+        lockfile lock_with("1.10.1")
+        bundle :check
+        lockfile_should_be lock_with("1.10.1")
+      end
     end
   end
 end

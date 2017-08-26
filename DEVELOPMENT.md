@@ -2,7 +2,7 @@ Great to have you here! Here are a few ways you can help out with [Bundler](http
 
 # Where should I start?
 
-You can start learning about Bundler by reading [the documentation](http://bundler.io). If you want, you can also read a (lengthy) explanation of [why Bundler exists and what it does](http://bundler.io/v1.5/rationale.html). You can also check out discussions about Bundler on the [Bundler mailing list](https://groups.google.com/group/ruby-bundler) and in the [Bundler IRC channel](http://webchat.freenode.net/?channels=%23bundler), which is #bundler on Freenode.
+You can start learning about Bundler by reading [the documentation](http://bundler.io). If you want, you can also read a (lengthy) explanation of [why Bundler exists and what it does](http://bundler.io/rationale.html). You can also check out discussions about Bundler on the [Bundler mailing list](https://groups.google.com/group/ruby-bundler) and in the [Bundler IRC channel](http://webchat.freenode.net/?channels=%23bundler), which is #bundler on Freenode. Please note that this project is released with a contributor [code of conduct](http://bundler.io/conduct.html). By participating in this project you agree to abide by its terms.
 
 ## Your first commits
 
@@ -10,11 +10,10 @@ If you’re interested in contributing to Bundler, that’s awesome! We’d love
 
 If you have any questions after reading this page, please feel free to contact either [@indirect](http://github.com/indirect) or [@hone](http://github.com/hone). They are both happy to provide help working through your first bugfix or thinking through the problem you’re trying to resolve.
 
-## Tackle some small problems
+## How you can help
 
 We track [small
-bugs](https://github.com/bundler/bundler/issues?labels=small&state=open) and [small features](https://github.com/bundler/bundler-features/issues?labels=small&state=open) so that anyone who wants to help can start with something that's not too overwhelming. If nothing on those lists looks good, though, just talk to us.
-
+bugs](https://github.com/bundler/bundler/issues?labels=small&state=open) and [small features](https://github.com/bundler/bundler-features/issues?labels=small&state=open) so that anyone who wants to help can start with something that's not too overwhelming. We also keep a [list of things anyone can help with, any time](https://github.com/bundler/bundler/blob/master/CONTRIBUTING.md#contributing). If nothing on those lists looks good, talk to us, and we'll figure out what you can help with. We can absolutely use your help, no matter what level of programming skill you have at the moment.
 
 # Development setup
 
@@ -30,10 +29,28 @@ Bundler doesn't use a Gemfile to list development dependencies, because when we 
 
   3. Set up a shell alias to run Bundler from your clone, e.g. a Bash alias:
 
-        $ alias dbundle='ruby -I /path/to/bundler/lib /path/to/bundler/bin/bundle'
+        $ alias dbundle='ruby -I /path/to/bundler/lib /path/to/bundler/exe/bundle'
 
      With that set up, you can test changes you've made to Bundler by running `dbundle`, without interfering with the regular `bundle` command.
 
+# Submitting Pull Requests
+
+Before you submit a pull request, please remember to do the following:
+
+- Make sure the code formatting and styling adheres to the guidelines. We use Rubocop for this. Lack of formatting adherence will result in automatic Travis build failures.
+
+        $ bin/rubocop -a
+
+- Please run the test suite:
+
+        $ bin/rspec
+
+- If you are unable to run the entire test suite, please run the unit test suite and at least the integration specs related to the command or domain of Bundler that your code changes relate to.
+
+- Ex. For a pull request that changes something with `bundle update`, you might run:
+
+        $ bin/rspec spec/bundler
+        $ bin/rspec spec/commands/update_spec.rb
 
 # Bug triage
 
@@ -70,7 +87,7 @@ Finally, the ticket may be a duplicate of another older ticket. If you notice a 
 
 If you would like to add a new feature to Bundler, please follow these steps:
 
-  1. [Create an issue](https://github.com/bundler/bundler-features/issues/new) to discuss your feature.
+  1. [Create an issue](https://github.com/bundler/bundler-features/issues/new) in the bundler-features repo to discuss your feature.
   2. Base your commits on the master branch, since we follow [SemVer](http://semver.org) and don't add new features to old releases.
   3. Commit the code and at least one test covering your changes to a feature branch in your fork.
   4. Put a line in the [CHANGELOG](https://github.com/bundler/bundler/blob/master/CHANGELOG.md) summarizing your changes under the next release under the "Features" heading.
@@ -83,7 +100,7 @@ If you don't hear back immediately, don’t get discouraged! We all have day job
 
 Early releases require heavy testing, especially across various system setups. We :heart: testers, and are big fans of anyone who can run `gem install bundler --pre` and try out upcoming releases in their development and staging environments.
 
-There may not always be prereleases or beta versions of Bundler. That said, you are always welcome to try checking out master and building a gem yourself if you want to try out the latest changes.
+There may not always be prereleases or beta versions of Bundler. The Bundler team will tweet from the [@bundlerio account](http://twitter.com/bundlerio) when a prerelease or beta version becomes available. You are also always welcome to try checking out master and building a gem yourself if you want to try out the latest changes.
 
 
 # Translations
@@ -115,3 +132,5 @@ Finally, sharing your experiences and discoveries by writing them up is a valuab
 Examples of how Bundler is used help everyone, and we’ve discovered that people already use it in ways that we never imagined when we were writing it. If you’re still not sure what to write about, there are also several projects doing interesting things based on Bundler. They could probably use publicity too.
 
 If you let someone on the core team know you wrote about Bundler, we will add your post to the list of Bundler resources on the Github project wiki.
+
+Finally, participate carefully in the  all contributors to the Bundler project must agree to the contributor [code of conduct](http://bundler.io/conduct.html). By participating in this project you agree to abide by its terms.

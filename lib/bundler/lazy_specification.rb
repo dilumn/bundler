@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "uri"
 require "rubygems/spec_fetcher"
 require "bundler/match_platform"
@@ -7,7 +8,7 @@ module Bundler
     include MatchPlatform
 
     attr_reader :name, :version, :dependencies, :platform
-    attr_accessor :source, :source_uri
+    attr_accessor :source, :remote
 
     def initialize(name, version, platform, source = nil)
       @name          = name
@@ -19,7 +20,7 @@ module Bundler
     end
 
     def full_name
-      if platform == Gem::Platform::RUBY or platform.nil? then
+      if platform == Gem::Platform::RUBY || platform.nil?
         "#{@name}-#{@version}"
       else
         "#{@name}-#{@version}-#{platform}"
@@ -35,13 +36,15 @@ module Bundler
     end
 
     def to_lock
-      if platform == Gem::Platform::RUBY or platform.nil?
-        out = "    #{name} (#{version})\n"
+      out = String.new
+
+      if platform == Gem::Platform::RUBY || platform.nil?
+        out << "    #{name} (#{version})\n"
       else
-        out = "    #{name} (#{version}-#{platform})\n"
+        out << "    #{name} (#{version}-#{platform})\n"
       end
 
-      dependencies.sort_by {|d| d.to_s }.each do |dep|
+      dependencies.sort_by(&:to_s).uniq.each do |dep|
         next if dep.type == :development
         out << "    #{dep.to_lock}\n"
       end
@@ -54,7 +57,7 @@ module Bundler
     end
 
     def respond_to?(*args)
-      super || @specification.respond_to?(*args)
+      super || @specification ? @specification.respond_to?(*args) : nil
     end
 
     def to_s
@@ -78,6 +81,5 @@ module Bundler
 
       @specification.send(method, *args, &blk)
     end
-
   end
 end

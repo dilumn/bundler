@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 module Bundler
   class CLI::Update
     attr_reader :options, :gems
@@ -12,7 +13,7 @@ module Bundler
       sources = Array(options[:source])
       groups  = Array(options[:group]).map(&:to_sym)
 
-      if gems.empty? && sources.empty? && groups.empty?
+      if gems.empty? && sources.empty? && groups.empty? && !options[:ruby]
         # We're doing a full update
         Bundler.definition(true)
       else
@@ -21,7 +22,7 @@ module Bundler
             "Run `bundle install` to update and install the bundled gems."
         end
         # cycle through the requested gems, just to make sure they exist
-        names = Bundler.locked_gems.specs.map{ |s| s.name }
+        names = Bundler.locked_gems.specs.map(&:name)
         gems.each do |g|
           next if names.include?(g)
           require "bundler/cli/common"
@@ -30,10 +31,10 @@ module Bundler
 
         if groups.any?
           specs = Bundler.definition.specs_for groups
-          sources.concat(specs.map(&:name))
+          gems.concat(specs.map(&:name))
         end
 
-        Bundler.definition(:gems => gems, :sources => sources)
+        Bundler.definition(:gems => gems, :sources => sources, :ruby => options[:ruby])
       end
 
       Bundler::Fetcher.disable_endpoint = options["full-index"]
@@ -49,25 +50,23 @@ module Bundler
 
       Bundler.definition.validate_ruby!
       Installer.install Bundler.root, Bundler.definition, opts
-      Bundler.load.cache if Bundler.root.join("vendor/cache").exist?
+      Bundler.load.cache if Bundler.app_cache.exist?
 
       if Bundler.settings[:clean] && Bundler.settings[:path]
         require "bundler/cli/clean"
         Bundler::CLI::Clean.new(options).run
       end
 
-      Bundler.ui.confirm "Your bundle is updated!"
+      Bundler.ui.confirm "Bundle updated!"
       without_groups_messages
     end
 
   private
 
     def without_groups_messages
-      if Bundler.settings.without.any?
-        require "bundler/cli/common"
-        Bundler.ui.confirm Bundler::CLI::Common.without_groups_message
-      end
+      return unless Bundler.settings.without.any?
+      require "bundler/cli/common"
+      Bundler.ui.confirm Bundler::CLI::Common.without_groups_message
     end
-
   end
 end

@@ -7,8 +7,10 @@
 /pkg/
 /spec/reports/
 /tmp/
+<%- if config[:ext] -%>
 *.bundle
 *.so
 *.o
 *.a
 mkmf.log
+<%- end -%>

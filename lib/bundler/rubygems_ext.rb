@@ -1,19 +1,20 @@
-require 'pathname'
+# frozen_string_literal: true
+require "pathname"
 
 if defined?(Gem::QuickLoader)
   # Gem Prelude makes me a sad panda :'(
   Gem::QuickLoader.load_full_rubygems_library
 end
 
-require 'rubygems'
-require 'rubygems/specification'
-require 'bundler/match_platform'
+require "rubygems"
+require "rubygems/specification"
+require "bundler/match_platform"
 
 module Gem
-  @loaded_stacks = Hash.new { |h,k| h[k] = [] }
+  @loaded_stacks = Hash.new {|h, k| h[k] = [] }
 
   class Specification
-    attr_accessor :source_uri, :location, :relative_loaded_from
+    attr_accessor :remote, :location, :relative_loaded_from
 
     remove_method :source if instance_methods(false).include?(:source)
     attr_accessor :source
@@ -22,15 +23,19 @@ module Gem
     alias_method :rg_loaded_from,   :loaded_from
 
     def full_gem_path
-      source.respond_to?(:path) ?
-        Pathname.new(loaded_from).dirname.expand_path(Bundler.root).to_s.untaint :
+      if source.respond_to?(:path)
+        Pathname.new(loaded_from).dirname.expand_path(Bundler.root).to_s.untaint
+      else
         rg_full_gem_path
+      end
     end
 
     def loaded_from
-      relative_loaded_from ?
-        source.path.join(relative_loaded_from).to_s :
+      if relative_loaded_from
+        source.path.join(relative_loaded_from).to_s
+      else
         rg_loaded_from
+      end
     end
 
     def load_paths
@@ -48,9 +53,11 @@ module Gem
     if method_defined?(:extension_dir)
       alias_method :rg_extension_dir, :extension_dir
       def extension_dir
-        @extension_dir ||= source.respond_to?(:extension_dir_name) ?
-          File.expand_path(File.join(extensions_dir, source.extension_dir_name)) :
+        @bundler_extension_dir ||= if source.respond_to?(:extension_dir_name)
+          File.expand_path(File.join(extensions_dir, source.extension_dir_name))
+        else
           rg_extension_dir
+        end
       end
     end
 
@@ -72,7 +79,7 @@ module Gem
     end
 
     def to_gemfile(path = nil)
-      gemfile = "source :gemcutter\n"
+      gemfile = String.new("source 'https://rubygems.org'\n")
       gemfile << dependencies_to_gemfile(nondevelopment_dependencies)
       unless development_dependencies.empty?
         gemfile << "\n"
@@ -88,43 +95,42 @@ module Gem
   private
 
     def dependencies_to_gemfile(dependencies, group = nil)
-      gemfile = ''
+      gemfile = String.new
       if dependencies.any?
         gemfile << "group :#{group} do\n" if group
         dependencies.each do |dependency|
-          gemfile << '  ' if group
-          gemfile << %|gem "#{dependency.name}"|
+          gemfile << "  " if group
+          gemfile << %(gem "#{dependency.name}")
           req = dependency.requirements_list.first
-          gemfile << %|, "#{req}"| if req
+          gemfile << %(, "#{req}") if req
           gemfile << "\n"
         end
         gemfile << "end\n" if group
       end
       gemfile
     end
-
   end
 
   class Dependency
     attr_accessor :source, :groups
 
-    alias eql? ==
+    alias_method :eql?, :==
 
     def encode_with(coder)
       to_yaml_properties.each do |ivar|
-        coder[ivar.to_s.sub(/^@/, '')] = instance_variable_get(ivar)
+        coder[ivar.to_s.sub(/^@/, "")] = instance_variable_get(ivar)
       end
     end
 
     def to_yaml_properties
-      instance_variables.reject { |p| ["@source", "@groups"].include?(p.to_s) }
+      instance_variables.reject {|p| ["@source", "@groups"].include?(p.to_s) }
     end
 
     def to_lock
-      out = "  #{name}"
+      out = String.new("  #{name}")
       unless requirement == Gem::Requirement.default
-        reqs = requirement.requirements.map{|o,v| "#{o} #{v}" }.sort.reverse
-        out << " (#{reqs.join(', ')})"
+        reqs = requirement.requirements.map {|o, v| "#{o} #{v}" }.sort.reverse
+        out << " (#{reqs.join(", ")})"
       end
       out
     end
@@ -147,10 +153,11 @@ module Gem
   end
 
   class Platform
-    JAVA  = Gem::Platform.new('java') unless defined?(JAVA)
-    MSWIN = Gem::Platform.new('mswin32') unless defined?(MSWIN)
-    MINGW = Gem::Platform.new('x86-mingw32') unless defined?(MINGW)
-    X64_MINGW = Gem::Platform.new('x64-mingw32') unless defined?(X64_MINGW)
+    JAVA  = Gem::Platform.new("java") unless defined?(JAVA)
+    MSWIN = Gem::Platform.new("mswin32") unless defined?(MSWIN)
+    MSWIN64 = Gem::Platform.new("mswin64") unless defined?(MSWIN64)
+    MINGW = Gem::Platform.new("x86-mingw32") unless defined?(MINGW)
+    X64_MINGW = Gem::Platform.new("x64-mingw32") unless defined?(X64_MINGW)
 
     undef_method :hash if method_defined? :hash
     def hash
@@ -158,7 +165,7 @@ module Gem
     end
 
     undef_method :eql? if method_defined? :eql?
-    alias eql? ==
+    alias_method :eql?, :==
   end
 end
 

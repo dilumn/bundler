@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "set"
 
 module Bundler
@@ -11,24 +12,27 @@ module Bundler
     end
 
     attr_reader :specs, :all_specs, :sources
-    protected   :specs, :all_specs
+    protected :specs, :all_specs
+
+    RUBY = "ruby".freeze
+    NULL = "\0".freeze
 
     def initialize
       @sources = []
       @cache = {}
-      @specs = Hash.new { |h,k| h[k] = [] }
-      @all_specs = Hash.new { |h,k| h[k] = [] }
+      @specs = Hash.new {|h, k| h[k] = {} }
+      @all_specs = Hash.new {|h, k| h[k] = [] }
     end
 
     def initialize_copy(o)
       super
       @sources = @sources.dup
       @cache = {}
-      @specs = Hash.new { |h,k| h[k] = [] }
-      @all_specs = Hash.new { |h,k| h[k] = [] }
+      @specs = Hash.new {|h, k| h[k] = {} }
+      @all_specs = Hash.new {|h, k| h[k] = [] }
 
-      o.specs.each do |name, array|
-        @specs[name] = array.dup
+      o.specs.each do |name, hash|
+        @specs[name] = hash.dup
       end
       o.all_specs.each do |name, array|
         @all_specs[name] = array.dup
@@ -36,7 +40,7 @@ module Bundler
     end
 
     def inspect
-      "#<#{self.class}:0x#{object_id} sources=#{sources.map{|s| s.inspect}} specs.size=#{specs.size}>"
+      "#<#{self.class}:0x#{object_id} sources=#{sources.map(&:inspect)} specs.size=#{specs.size}>"
     end
 
     def empty?
@@ -56,7 +60,7 @@ module Bundler
     # about, returning all of the results.
     def search(query, base = nil)
       results = local_search(query, base)
-      seen = Set.new(results.map { |spec| [spec.name, spec.version, spec.platform] })
+      seen = Set.new(results.map {|spec| [spec.name, spec.version, spec.platform] })
 
       @sources.each do |source|
         source.search(query, base).each do |spec|
@@ -68,7 +72,7 @@ module Bundler
         end
       end
 
-      results.sort_by {|s| [s.version, s.platform.to_s == 'ruby' ? "\0" : s.platform.to_s] }
+      results.sort_by {|s| [s.version, s.platform.to_s == RUBY ? NULL : s.platform.to_s] }
     end
 
     def local_search(query, base = nil)
@@ -76,44 +80,36 @@ module Bundler
       when Gem::Specification, RemoteSpecification, LazySpecification, EndpointSpecification then search_by_spec(query)
       when String then specs_by_name(query)
       when Gem::Dependency then search_by_dependency(query, base)
+      when DepProxy then search_by_dependency(query.dep, base)
       else
         raise "You can't search for a #{query.inspect}."
       end
     end
 
-    def source_types
-      sources.map{|s| s.class }.uniq
-    end
-
-    alias [] search
+    alias_method :[], :search
 
     def <<(spec)
-      arr = specs_by_name(spec.name)
+      @specs[spec.name][spec.full_name] = spec
 
-      arr.delete_if do |s|
-        same_version?(s.version, spec.version) && s.platform == spec.platform
-      end
-
-      arr << spec
       spec
     end
 
     def each(&blk)
-      specs.values.each do |specs|
-        specs.each(&blk)
+      specs.values.each do |spec_sets|
+        spec_sets.values.each(&blk)
       end
     end
 
     # returns a list of the dependencies
     def unmet_dependency_names
       names = dependency_names
-      names.delete_if{|n| n == "bundler" }
-      names.select{|n| search(n).empty? }
+      names.delete_if {|n| n == "bundler" }
+      names.select {|n| search(n).empty? }
     end
 
     def dependency_names
       names = []
-      each{|s| names.push(*s.dependencies.map{|d| d.name }) }
+      each {|s| names.push(*s.dependencies.map(&:name)) }
       names.uniq
     end
 
@@ -123,9 +119,9 @@ module Bundler
         if (dupes = search_by_spec(s)) && dupes.any?
           @all_specs[s.name] = [s] + dupes
           next unless override_dupes
-          @specs[s.name] -= dupes
+          self << s
         end
-        @specs[s.name] << s
+        self << s
       end
       self
     end
@@ -136,26 +132,23 @@ module Bundler
       end
     end
 
-    def ==(o)
+    def ==(other)
       all? do |spec|
-        other_spec = o[spec].first
-        (spec.dependencies & other_spec.dependencies).empty? && spec.source == other_spec.source
+        other_spec = other[spec].first
+        other_spec && (spec.dependencies & other_spec.dependencies).empty? && spec.source == other_spec.source
       end
     end
 
     def add_source(index)
-      if index.is_a?(Index)
-        @sources << index
-        @sources.uniq! # need to use uniq! here instead of checking for the item before adding
-      else
-        raise ArgumentError, "Source must be an index, not #{index.class}"
-      end
+      raise ArgumentError, "Source must be an index, not #{index.class}" unless index.is_a?(Index)
+      @sources << index
+      @sources.uniq! # need to use uniq! here instead of checking for the item before adding
     end
 
   private
 
     def specs_by_name(name)
-      @specs[name]
+      @specs[name].values
     end
 
     def search_by_dependency(dependency, base = nil)
@@ -174,7 +167,7 @@ module Bundler
         only_prerelease  = specs.all? {|spec| spec.version.prerelease? }
 
         unless wants_prerelease || only_prerelease
-          found.reject! { |spec| spec.version.prerelease? }
+          found.reject! {|spec| spec.version.prerelease? }
         end
 
         found
@@ -182,12 +175,11 @@ module Bundler
     end
 
     def search_by_spec(spec)
-      specs_by_name(spec.name).select do |s|
-        same_version?(s.version, spec.version) && Gem::Platform.new(s.platform) == Gem::Platform.new(spec.platform)
-      end
+      spec = @specs[spec.name][spec.full_name]
+      spec ? [spec] : []
     end
 
-    if RUBY_VERSION < '1.9'
+    if RUBY_VERSION < "1.9"
       def same_version?(a, b)
         regex = /^(.*?)(?:\.0)*$/
         a.to_s[regex, 1] == b.to_s[regex, 1]
@@ -202,6 +194,5 @@ module Bundler
       return false unless dep.name == spec.name
       dep.requirement.satisfied_by?(spec.version)
     end
-
   end
 end

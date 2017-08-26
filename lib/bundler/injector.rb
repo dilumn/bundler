@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 module Bundler
   class Injector
     def self.inject(new_deps)
@@ -40,14 +41,14 @@ module Bundler
       # return an array of the deps that we added
       return @new_deps
     ensure
-      Bundler.settings[:frozen] = '1' if frozen
+      Bundler.settings[:frozen] = "1" if frozen
     end
 
   private
 
     def new_gem_lines
       @new_deps.map do |d|
-        %|gem '#{d.name}', '#{d.requirement}'|
+        %(gem '#{d.name}', '#{d.requirement}')
       end.join("\n")
     end
 
@@ -58,7 +59,5 @@ module Bundler
         f.puts new_gem_lines
       end
     end
-
-
   end
 end

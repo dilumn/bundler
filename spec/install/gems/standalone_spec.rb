@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "spec_helper"
 
 describe "bundle install --standalone" do
@@ -45,6 +46,21 @@ describe "bundle install --standalone" do
     end
   end
 
+  describe "with gems with native extension" do
+    before do
+      install_gemfile <<-G, :standalone => true
+        source "file://#{gem_repo1}"
+        gem "very_simple_binary"
+      G
+    end
+
+    it "generates a bundle/bundler/setup.rb with the proper paths", :rubygems => "2.4" do
+      extension_line = File.read(bundled_app("bundle/bundler/setup.rb")).each_line.find {|line| line.include? "/extensions/" }.strip
+      expect(extension_line).to start_with '$:.unshift "#{path}/../#{ruby_engine}/#{ruby_version}/extensions/'
+      expect(extension_line).to end_with '/very_simple_binary-1.0"'
+    end
+  end
+
   describe "with a combination of gems and git repos" do
     before do
       build_git "devise", "1.0"
@@ -52,7 +68,7 @@ describe "bundle install --standalone" do
       install_gemfile <<-G, :standalone => true
         source "file://#{gem_repo1}"
         gem "rails"
-        gem "devise", :git => "#{lib_path('devise-1.0')}"
+        gem "devise", :git => "#{lib_path("devise-1.0")}"
       G
     end
 
@@ -113,7 +129,7 @@ describe "bundle install --standalone" do
     it "allows creating a standalone file with limited groups" do
       bundle "install --standalone default"
 
-      load_error_ruby <<-RUBY, 'spec', :no_lib => true
+      load_error_ruby <<-RUBY, "spec", :no_lib => true
         $:.unshift File.expand_path("bundle")
         require "bundler/setup"
 
@@ -129,7 +145,7 @@ describe "bundle install --standalone" do
     it "allows --without to limit the groups used in a standalone" do
       bundle "install --standalone --without test"
 
-      load_error_ruby <<-RUBY, 'spec', :no_lib => true
+      load_error_ruby <<-RUBY, "spec", :no_lib => true
         $:.unshift File.expand_path("bundle")
         require "bundler/setup"
 
@@ -160,7 +176,7 @@ describe "bundle install --standalone" do
       bundle "install --without test"
       bundle "install --standalone"
 
-      load_error_ruby <<-RUBY, 'spec', :no_lib => true
+      load_error_ruby <<-RUBY, "spec", :no_lib => true
         $:.unshift File.expand_path("bundle")
         require "bundler/setup"
 
@@ -186,9 +202,9 @@ describe "bundle install --standalone" do
       end
 
       it "should run without errors" do
-        bundle "install --standalone", :artifice => "endpoint", :exitstatus => true
+        bundle "install --standalone", :artifice => "endpoint"
 
-        expect(@exitstatus).to eq(0)
+        expect(exitstatus).to eq(0) if exitstatus
       end
 
       it "still makes the gems available to normal bundler" do
@@ -251,10 +267,54 @@ describe "bundle install --standalone" do
     end
 
     it "creates stubs that can be executed from anywhere" do
-      require 'tmpdir'
+      require "tmpdir"
       Dir.chdir(Dir.tmpdir) do
         expect(`#{bundled_app}/bin/rails -v`.chomp).to eql "2.3.2"
       end
+    end
+
+    it "creates stubs with the correct load path" do
+      extension_line = File.read(bundled_app("bin/rails")).each_line.find {|line| line.include? "$:.unshift" }.strip
+      expect(extension_line).to eq "$:.unshift File.expand_path '../../bundle', __FILE__"
+    end
+  end
+
+  describe "with --binstubs run in a subdirectory" do
+    before do
+      FileUtils.mkdir_p("bob")
+      Dir.chdir("bob") do
+        install_gemfile <<-G, :standalone => true, :binstubs => true
+          source "file://#{gem_repo1}"
+          gem "rails"
+        G
+      end
+    end
+
+    # @todo This test fails because the bundler/setup.rb is written to the
+    # current directory.
+    xit "creates stubs that use the standalone load path" do
+      Dir.chdir(bundled_app) do
+        expect(`bin/rails -v`.chomp).to eql "2.3.2"
+      end
+    end
+
+    it "creates stubs with the correct load path" do
+      extension_line = File.read(bundled_app("bin/rails")).each_line.find {|line| line.include? "$:.unshift" }.strip
+      expect(extension_line).to eq "$:.unshift File.expand_path '../../bundle', __FILE__"
+    end
+  end
+
+  describe "with gem that has an invalid gemspec" do
+    before do
+      install_gemfile <<-G, :standalone => true
+        source 'https://rubygems.org'
+        gem "resque-scheduler", "2.2.0"
+      G
+    end
+
+    it "outputs a helpful error message" do
+      expect(out).to include("You have one or more invalid gemspecs that need to be fixed.")
+      expect(out).to include("resque-scheduler 2.2.0 has an invalid gemspec")
     end
   end
 end

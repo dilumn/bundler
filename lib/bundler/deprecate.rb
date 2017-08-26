@@ -1,5 +1,5 @@
+# frozen_string_literal: true
 module Bundler
-
   if defined? ::Deprecate
     Deprecate = ::Deprecate
   elsif defined? Gem::Deprecate
@@ -9,7 +9,8 @@ module Bundler
   end
 
   unless Deprecate.respond_to?(:skip_during)
-    def Deprecate.skip_during; yield; end
+    def Deprecate.skip_during
+      yield
+    end
   end
-
 end

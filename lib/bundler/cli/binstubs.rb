@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "bundler/cli/common"
 
 module Bundler
@@ -20,7 +21,7 @@ module Bundler
       end
 
       gems.each do |gem_name|
-        spec = installer.specs.find{|s| s.name == gem_name }
+        spec = installer.specs.find {|s| s.name == gem_name }
         unless spec
           raise GemNotFound, Bundler::CLI::Common.gem_not_found_message(
             gem_name, Bundler.definition.specs)
@@ -33,6 +34,5 @@ module Bundler
         end
       end
     end
-
   end
 end

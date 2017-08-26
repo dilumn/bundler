@@ -1,11 +1,19 @@
-require 'bundler/vendored_persistent'
-require 'securerandom'
-require 'cgi'
+# frozen_string_literal: true
+require "bundler/vendored_persistent"
+require "cgi"
+require "securerandom"
+require "zlib"
 
 module Bundler
-
   # Handles all the fetching with the rubygems server
   class Fetcher
+    autoload :CompactIndex, "bundler/fetcher/compact_index"
+    autoload :Downloader, "bundler/fetcher/downloader"
+    autoload :Dependency, "bundler/fetcher/dependency"
+    autoload :Index, "bundler/fetcher/index"
+
+    # This error is raised when it looks like the network is down
+    class NetworkDownError < HTTPError; end
     # This error is raised if the API returns a 413 (only printed in verbose)
     class FallbackError < HTTPError; end
     # This is the error raised if OpenSSL fails the cert verification
@@ -15,7 +23,7 @@ module Bundler
           " is a chance you are experiencing a man-in-the-middle attack, but" \
           " most likely your system doesn't have the CA certificates needed" \
           " for verification. For information about OpenSSL certificates, see" \
-          " bit.ly/ruby-ssl. To connect without using SSL, edit your Gemfile" \
+          " http://bit.ly/ruby-ssl. To connect without using SSL, edit your Gemfile" \
           " sources and change 'https' to 'http'."
       end
     end
@@ -46,59 +54,177 @@ module Bundler
 
     # Exceptions classes that should bypass retry attempts. If your password didn't work the
     # first time, it's not going to the third time.
-    AUTH_ERRORS = [AuthenticationRequiredError, BadAuthenticationError]
+    NET_ERRORS = [:HTTPBadGateway, :HTTPBadRequest, :HTTPFailedDependency,
+                  :HTTPForbidden, :HTTPInsufficientStorage, :HTTPMethodNotAllowed,
+                  :HTTPMovedPermanently, :HTTPNoContent, :HTTPNotFound,
+                  :HTTPNotImplemented, :HTTPPreconditionFailed, :HTTPRequestEntityTooLarge,
+                  :HTTPRequestURITooLong, :HTTPUnauthorized, :HTTPUnprocessableEntity,
+                  :HTTPUnsupportedMediaType, :HTTPVersionNotSupported].freeze
+    FAIL_ERRORS = begin
+      fail_errors = [AuthenticationRequiredError, BadAuthenticationError, FallbackError]
+      fail_errors << Gem::Requirement::BadRequirementError if defined?(Gem::Requirement::BadRequirementError)
+      fail_errors.push(*NET_ERRORS.map {|e| SharedHelpers.const_get_safely(e, Net) }.compact)
+    end.freeze
 
     class << self
       attr_accessor :disable_endpoint, :api_timeout, :redirect_limit, :max_retries
-
-      def download_gem_from_uri(spec, uri)
-        spec.fetch_platform
-
-        download_path = Bundler.requires_sudo? ? Bundler.tmp(spec.full_name) : Bundler.rubygems.gem_dir
-        gem_path = "#{Bundler.rubygems.gem_dir}/cache/#{spec.full_name}.gem"
-
-        FileUtils.mkdir_p("#{download_path}/cache")
-        Bundler.rubygems.download_gem(spec, uri, download_path)
-
-        if Bundler.requires_sudo?
-          Bundler.mkdir_p "#{Bundler.rubygems.gem_dir}/cache"
-          Bundler.sudo "mv #{Bundler.tmp(spec.full_name)}/cache/#{spec.full_name}.gem #{gem_path}"
-        end
-
-        gem_path
-      end
-
-      def user_agent
-        @user_agent ||= begin
-          ruby = Bundler.ruby_version
-
-          agent = "bundler/#{Bundler::VERSION}"
-          agent += " rubygems/#{Gem::VERSION}"
-          agent += " ruby/#{ruby.version}"
-          agent += " (#{ruby.host})"
-          agent += " command/#{ARGV.first}"
-
-          if ruby.engine != "ruby"
-            # engine_version raises on unknown engines
-            engine_version = ruby.engine_version rescue "???"
-            agent += " #{ruby.engine}/#{engine_version}"
-          end
-          # add a random ID so we can consolidate runs server-side
-          agent << " " << SecureRandom.hex(8)
-        end
-      end
-
     end
 
-    def initialize(remote_uri)
-      @redirect_limit = 5  # How many redirects to allow in one request
-      @api_timeout    = 10 # How long to wait for each API call
-      @max_retries    = 3  # How many retries for the API call
+    self.redirect_limit = Bundler.settings[:redirect] # How many redirects to allow in one request
+    self.api_timeout    = Bundler.settings[:timeout] # How long to wait for each API call
+    self.max_retries    = Bundler.settings[:retry] # How many retries for the API call
 
-      @anonymizable_uri = resolve_remote_uri(remote_uri)
+    def initialize(remote)
+      @remote = remote
 
       Socket.do_not_reverse_lookup = true
       connection # create persistent connection
+    end
+
+    def uri
+      @remote.anonymized_uri
+    end
+
+    # fetch a gem specification
+    def fetch_spec(spec)
+      spec -= [nil, "ruby", ""]
+      spec_file_name = "#{spec.join "-"}.gemspec"
+
+      uri = URI.parse("#{remote_uri}#{Gem::MARSHAL_SPEC_DIR}#{spec_file_name}.rz")
+      if uri.scheme == "file"
+        Bundler.load_marshal Gem.inflate(Gem.read_binary(uri.path))
+      elsif cached_spec_path = gemspec_cached_path(spec_file_name)
+        Bundler.load_gemspec(cached_spec_path)
+      else
+        Bundler.load_marshal Gem.inflate(downloader.fetch(uri).body)
+      end
+    rescue MarshalError
+      raise HTTPError, "Gemspec #{spec} contained invalid data.\n" \
+        "Your network or your gem server is probably having issues right now."
+    end
+
+    # return the specs in the bundler format as an index with retries
+    def specs_with_retry(gem_names, source)
+      Bundler::Retry.new("fetcher", FAIL_ERRORS).attempts do
+        specs(gem_names, source)
+      end
+    end
+
+    # return the specs in the bundler format as an index
+    def specs(gem_names, source)
+      old = Bundler.rubygems.sources
+      index = Bundler::Index.new
+
+      if Bundler::Fetcher.disable_endpoint
+        @use_api = false
+        specs = fetchers.last.specs(gem_names)
+      else
+        specs = []
+        fetchers.shift until fetchers.first.available? || fetchers.empty?
+        fetchers.dup.each do |f|
+          break unless f.api_fetcher? && !gem_names || !specs = f.specs(gem_names)
+          fetchers.delete(f)
+        end
+        @use_api = false if fetchers.none?(&:api_fetcher?)
+      end
+
+      specs.each do |name, version, platform, dependencies|
+        next if name == "bundler"
+        spec = if dependencies
+          EndpointSpecification.new(name, version, platform, dependencies)
+        else
+          RemoteSpecification.new(name, version, platform, self)
+        end
+        spec.source = source
+        spec.remote = @remote
+        index << spec
+      end
+
+      index
+    rescue CertificateFailureError
+      Bundler.ui.info "" if gem_names && use_api # newline after dots
+      raise
+    ensure
+      Bundler.rubygems.sources = old
+    end
+
+    def use_api
+      return @use_api if defined?(@use_api)
+
+      fetchers.shift until fetchers.first.available?
+
+      @use_api = if remote_uri.scheme == "file" || Bundler::Fetcher.disable_endpoint
+        false
+      else
+        fetchers.first.api_fetcher?
+      end
+    end
+
+    def user_agent
+      @user_agent ||= begin
+        ruby = Bundler::RubyVersion.system
+
+        agent = String.new("bundler/#{Bundler::VERSION}")
+        agent << " rubygems/#{Gem::VERSION}"
+        agent << " ruby/#{ruby.versions_string(ruby.versions)}"
+        agent << " (#{ruby.host})"
+        agent << " command/#{ARGV.first}"
+
+        if ruby.engine != "ruby"
+          # engine_version raises on unknown engines
+          engine_version = begin
+                             ruby.engine_versions
+                           rescue
+                             "???"
+                           end
+          agent << " #{ruby.engine}/#{ruby.versions_string(engine_version)}"
+        end
+
+        agent << " options/#{Bundler.settings.all.join(",")}"
+
+        agent << " ci/#{cis.join(",")}" if cis.any?
+
+        # add a random ID so we can consolidate runs server-side
+        agent << " " << SecureRandom.hex(8)
+
+        # add any user agent strings set in the config
+        extra_ua = Bundler.settings[:user_agent]
+        agent << " " << extra_ua if extra_ua
+
+        agent
+      end
+    end
+
+    def fetchers
+      @fetchers ||= FETCHERS.map {|f| f.new(downloader, @remote, uri) }
+    end
+
+    def http_proxy
+      return unless uri = connection.proxy_uri
+      uri.to_s
+    end
+
+    def inspect
+      "#<#{self.class}:0x#{object_id} uri=#{uri}>"
+    end
+
+  private
+
+    FETCHERS = [CompactIndex, Dependency, Index].freeze
+
+    def cis
+      env_cis = {
+        "TRAVIS" => "travis",
+        "CIRCLECI" => "circle",
+        "SEMAPHORE" => "semaphore",
+        "JENKINS_URL" => "jenkins",
+        "BUILDBOX" => "buildbox",
+        "GO_SERVER_URL" => "go",
+        "SNAP_CI" => "snap",
+        "CI_NAME" => ENV["CI_NAME"],
+        "CI" => "ci"
+      }
+      env_cis.find_all {|env, _| ENV[env] }.map {|_, ci| ci }
     end
 
     def connection
@@ -108,7 +234,10 @@ module Bundler
           Bundler.settings[:ssl_client_cert]
         raise SSLError if needs_ssl && !defined?(OpenSSL::SSL)
 
-        con = Net::HTTP::Persistent.new 'bundler', :ENV
+        con = Net::HTTP::Persistent.new "bundler", :ENV
+        if gem_proxy = Bundler.rubygems.configuration[:http_proxy]
+          con.proxy = URI.parse(gem_proxy) if gem_proxy != :no_proxy
+        end
 
         if remote_uri.scheme == "https"
           con.verify_mode = (Bundler.settings[:ssl_verify_mode] ||
@@ -122,242 +251,26 @@ module Bundler
           con.key  = OpenSSL::PKey::RSA.new(pem)
         end
 
-        con.read_timeout = @api_timeout
-        con.override_headers["User-Agent"] = self.class.user_agent
+        con.read_timeout = Fetcher.api_timeout
+        con.override_headers["User-Agent"] = user_agent
+        con.override_headers["X-Gemfile-Source"] = @remote.original_uri.to_s if @remote.original_uri
         con
       end
     end
 
-    def uri
-      @anonymizable_uri.without_credentials
-    end
-
-    # fetch a gem specification
-    def fetch_spec(spec)
-      spec = spec - [nil, 'ruby', '']
-      spec_file_name = "#{spec.join '-'}.gemspec"
-
-      uri = URI.parse("#{remote_uri}#{Gem::MARSHAL_SPEC_DIR}#{spec_file_name}.rz")
-      if uri.scheme == 'file'
-        Bundler.load_marshal Gem.inflate(Gem.read_binary(uri.path))
-      elsif cached_spec_path = gemspec_cached_path(spec_file_name)
-        Bundler.load_gemspec(cached_spec_path)
-      else
-        Bundler.load_marshal Gem.inflate(fetch(uri))
-      end
-    rescue MarshalError
-      raise HTTPError, "Gemspec #{spec} contained invalid data.\n" \
-        "Your network or your gem server is probably having issues right now."
-    end
-
     # cached gem specification path, if one exists
-    def gemspec_cached_path spec_file_name
-      paths = Bundler.rubygems.spec_cache_dirs.map { |dir| File.join(dir, spec_file_name) }
+    def gemspec_cached_path(spec_file_name)
+      paths = Bundler.rubygems.spec_cache_dirs.map {|dir| File.join(dir, spec_file_name) }
       paths = paths.select {|path| File.file? path }
       paths.first
     end
 
-    # return the specs in the bundler format as an index
-    def specs(gem_names, source)
-      old = Bundler.rubygems.sources
-      index = Index.new
-
-      if gem_names && use_api
-        specs = fetch_remote_specs(gem_names)
-      end
-
-      if specs.nil?
-        # API errors mean we should treat this as a non-API source
-        @use_api = false
-
-        specs = Bundler::Retry.new("source fetch", AUTH_ERRORS).attempts do
-          fetch_all_remote_specs
-        end
-      end
-
-      specs[remote_uri].each do |name, version, platform, dependencies|
-        next if name == 'bundler'
-        spec = nil
-        if dependencies
-          spec = EndpointSpecification.new(name, version, platform, dependencies)
-        else
-          spec = RemoteSpecification.new(name, version, platform, self)
-        end
-        spec.source = source
-        spec.source_uri = @anonymizable_uri
-        index << spec
-      end
-
-      index
-    rescue CertificateFailureError => e
-      Bundler.ui.info "" if gem_names && use_api # newline after dots
-      raise e
-    ensure
-      Bundler.rubygems.sources = old
-    end
-
-    # fetch index
-    def fetch_remote_specs(gem_names, full_dependency_list = [], last_spec_list = [])
-      query_list = gem_names - full_dependency_list
-
-      # only display the message on the first run
-      if Bundler.ui.debug?
-        Bundler.ui.debug "Query List: #{query_list.inspect}"
-      else
-        Bundler.ui.info ".", false
-      end
-
-      return {remote_uri => last_spec_list} if query_list.empty?
-
-      remote_specs = Bundler::Retry.new("dependency api", AUTH_ERRORS).attempts do
-        fetch_dependency_remote_specs(query_list)
-      end
-
-      spec_list, deps_list = remote_specs
-      returned_gems = spec_list.map {|spec| spec.first }.uniq
-      fetch_remote_specs(deps_list, full_dependency_list + returned_gems, spec_list + last_spec_list)
-    rescue HTTPError, MarshalError, GemspecError
-      Bundler.ui.info "" unless Bundler.ui.debug? # new line now that the dots are over
-      Bundler.ui.debug "could not fetch from the dependency API, trying the full index"
-      @use_api = false
-      return nil
-    end
-
-    def use_api
-      return @use_api if defined?(@use_api)
-
-      if remote_uri.scheme == "file" || Bundler::Fetcher.disable_endpoint
-        @use_api = false
-      elsif fetch(dependency_api_uri)
-        @use_api = true
-      end
-    rescue AuthenticationRequiredError
-      # We got a 401 from the server. Don't fall back to the full index, just fail.
-      raise
-    rescue HTTPError
-      @use_api = false
-    end
-
-    def inspect
-      "#<#{self.class}:0x#{object_id} uri=#{uri}>"
-    end
-
-  private
-
     HTTP_ERRORS = [
-      Timeout::Error, EOFError, SocketError, Errno::ENETDOWN,
+      Timeout::Error, EOFError, SocketError, Errno::ENETDOWN, Errno::ENETUNREACH,
       Errno::EINVAL, Errno::ECONNRESET, Errno::ETIMEDOUT, Errno::EAGAIN,
       Net::HTTPBadResponse, Net::HTTPHeaderSyntaxError, Net::ProtocolError,
-      Net::HTTP::Persistent::Error
-    ]
-
-    def fetch(uri, counter = 0)
-      raise HTTPError, "Too many redirects" if counter >= @redirect_limit
-
-      response = request(uri)
-      Bundler.ui.debug("HTTP #{response.code} #{response.message}")
-
-      case response
-      when Net::HTTPRedirection
-        new_uri = URI.parse(response["location"])
-        if new_uri.host == uri.host
-          new_uri.user = uri.user
-          new_uri.password = uri.password
-        end
-        fetch(new_uri, counter + 1)
-      when Net::HTTPSuccess
-        response.body
-      when Net::HTTPRequestEntityTooLarge
-        raise FallbackError, response.body
-      when Net::HTTPUnauthorized
-        raise AuthenticationRequiredError, remote_uri
-      else
-        raise HTTPError, "#{response.class}: #{response.body}"
-      end
-    end
-
-    def request(uri)
-      Bundler.ui.debug "HTTP GET #{uri}"
-      req = Net::HTTP::Get.new uri.request_uri
-      if uri.user
-        user = CGI.unescape(uri.user)
-        password = uri.password ? CGI.unescape(uri.password) : nil
-        req.basic_auth(user, password)
-      end
-      connection.request(uri, req)
-    rescue OpenSSL::SSL::SSLError
-      raise CertificateFailureError.new(uri)
-    rescue *HTTP_ERRORS => e
-      Bundler.ui.trace e
-      raise HTTPError, "Network error while fetching #{uri}"
-    end
-
-    def dependency_api_uri(gem_names = [])
-      uri = fetch_uri + "api/v1/dependencies"
-      uri.query = "gems=#{URI.encode(gem_names.join(","))}" if gem_names.any?
-      uri
-    end
-
-    # fetch from Gemcutter Dependency Endpoint API
-    def fetch_dependency_remote_specs(gem_names)
-      Bundler.ui.debug "Query Gemcutter Dependency Endpoint API: #{gem_names.join(',')}"
-      gem_list = []
-      deps_list = []
-
-      gem_names.each_slice(Source::Rubygems::API_REQUEST_LIMIT) do |names|
-        marshalled_deps = fetch dependency_api_uri(names)
-        gem_list += Bundler.load_marshal(marshalled_deps)
-      end
-
-      spec_list = gem_list.map do |s|
-        dependencies = s[:dependencies].map do |name, requirement|
-          dep = well_formed_dependency(name, requirement.split(", "))
-          deps_list << dep.name
-          dep
-        end
-
-        [s[:name], Gem::Version.new(s[:number]), s[:platform], dependencies]
-      end
-
-      [spec_list, deps_list.uniq]
-    end
-
-    # fetch from modern index: specs.4.8.gz
-    def fetch_all_remote_specs
-      old_sources = Bundler.rubygems.sources
-      Bundler.rubygems.sources = [remote_uri.to_s]
-      Bundler.rubygems.fetch_all_remote_specs
-    rescue Gem::RemoteFetcher::FetchError, OpenSSL::SSL::SSLError => e
-      case e.message
-      when /certificate verify failed/
-        raise CertificateFailureError.new(uri)
-      when /401/
-        raise AuthenticationRequiredError, remote_uri
-      when /403/
-        if remote_uri.userinfo
-          raise BadAuthenticationError, remote_uri
-        else
-          raise AuthenticationRequiredError, remote_uri
-        end
-      else
-        Bundler.ui.trace e
-        raise HTTPError, "Could not fetch specs from #{uri}"
-      end
-    ensure
-      Bundler.rubygems.sources = old_sources
-    end
-
-    def well_formed_dependency(name, *requirements)
-      Gem::Dependency.new(name, *requirements)
-    rescue ArgumentError => e
-      illformed = 'Ill-formed requirement ["#<YAML::Syck::DefaultKey'
-      raise e unless e.message.include?(illformed)
-      puts # we shouldn't print the error message on the "fetching info" status line
-      raise GemspecError,
-        "Unfortunately, the gem #{s[:name]} (#{s[:number]}) has an invalid " \
-        "gemspec. \nPlease ask the gem author to yank the bad version to fix " \
-        "this issue. For more information, see http://bit.ly/syck-defaultkey."
-    end
+      Net::HTTP::Persistent::Error, Zlib::BufError
+    ].freeze
 
     def bundler_cert_store
       store = OpenSSL::X509::Store.new
@@ -369,41 +282,20 @@ module Bundler
         end
       else
         store.set_default_paths
-        certs = File.expand_path("../ssl_certs/*.pem", __FILE__)
-        Dir.glob(certs).each { |c| store.add_file c }
+        certs = File.expand_path("../ssl_certs/*/*.pem", __FILE__)
+        Dir.glob(certs).each {|c| store.add_file c }
       end
       store
     end
 
   private
 
-    def resolve_remote_uri(uri)
-      add_configured_credentials(Bundler::Source.mirror_for(uri))
-    end
-
-    def add_configured_credentials(uri)
-      auth = Bundler.settings[uri.to_s]
-      if auth
-        uri = uri.dup
-        uri.user, uri.password = *auth.split(":", 2)
-      end
-      AnonymizableURI.new(uri)
-    end
-
-    def fetch_uri
-      @fetch_uri ||= begin
-        if remote_uri.host == "rubygems.org"
-          uri = remote_uri.dup
-          uri.host = "bundler.rubygems.org"
-          uri
-        else
-          remote_uri
-        end
-      end
-    end
-
     def remote_uri
-      @anonymizable_uri.original_uri
+      @remote.uri
+    end
+
+    def downloader
+      @downloader ||= Downloader.new(connection, self.class.redirect_limit)
     end
   end
 end

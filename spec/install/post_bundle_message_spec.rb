@@ -1,4 +1,5 @@
-require 'spec_helper'
+# frozen_string_literal: true
+require "spec_helper"
 
 describe "post bundle message" do
   before :each do
@@ -13,10 +14,11 @@ describe "post bundle message" do
     G
   end
 
-  let(:bundle_show_message)       {"Use `bundle show [gemname]` to see where a bundled gem is installed."}
-  let(:bundle_deployment_message) {"It was installed into ./vendor"}
-  let(:bundle_complete_message)   {"Your bundle is complete!"}
-  let(:bundle_updated_message)    {"Your bundle is updated!"}
+  let(:bundle_show_message)       { "Use `bundle show [gemname]` to see where a bundled gem is installed." }
+  let(:bundle_deployment_message) { "Bundled gems are installed into ./vendor" }
+  let(:bundle_complete_message)   { "Bundle complete!" }
+  let(:bundle_updated_message)    { "Bundle updated!" }
+  let(:installed_gems_stats)      { "4 Gemfile dependencies, 5 gems now installed." }
 
   describe "for fresh bundle install" do
     it "without any options" do
@@ -24,6 +26,7 @@ describe "post bundle message" do
       expect(out).to include(bundle_show_message)
       expect(out).not_to include("Gems in the group")
       expect(out).to include(bundle_complete_message)
+      expect(out).to include(installed_gems_stats)
     end
 
     it "with --without one group" do
@@ -31,6 +34,7 @@ describe "post bundle message" do
       expect(out).to include(bundle_show_message)
       expect(out).to include("Gems in the group emo were not installed")
       expect(out).to include(bundle_complete_message)
+      expect(out).to include(installed_gems_stats)
     end
 
     it "with --without two groups" do
@@ -38,6 +42,7 @@ describe "post bundle message" do
       expect(out).to include(bundle_show_message)
       expect(out).to include("Gems in the groups emo and test were not installed")
       expect(out).to include(bundle_complete_message)
+      expect(out).to include("4 Gemfile dependencies, 3 gems now installed.")
     end
 
     it "with --without more groups" do
@@ -45,6 +50,7 @@ describe "post bundle message" do
       expect(out).to include(bundle_show_message)
       expect(out).to include("Gems in the groups emo, obama and test were not installed")
       expect(out).to include(bundle_complete_message)
+      expect(out).to include("4 Gemfile dependencies, 2 gems now installed.")
     end
 
     describe "with --path and" do
@@ -76,6 +82,17 @@ describe "post bundle message" do
         expect(out).to include(bundle_complete_message)
       end
     end
+
+    describe "with misspelled or non-existent gem name" do
+      it "should report a helpful error message" do
+        install_gemfile <<-G
+          source "file://#{gem_repo1}"
+          gem "rack"
+          gem "not-a-gem", :group => :development
+        G
+        expect(out).to include("Could not find gem 'not-a-gem' in any of the gem sources listed in your Gemfile or available on this machine.")
+      end
+    end
   end
 
   describe "for second bundle install run" do
@@ -84,6 +101,7 @@ describe "post bundle message" do
       expect(out).to include(bundle_show_message)
       expect(out).to_not include("Gems in the groups")
       expect(out).to include(bundle_complete_message)
+      expect(out).to include(installed_gems_stats)
     end
 
     it "with --without one group" do
@@ -92,6 +110,7 @@ describe "post bundle message" do
       expect(out).to include(bundle_show_message)
       expect(out).to include("Gems in the group emo were not installed")
       expect(out).to include(bundle_complete_message)
+      expect(out).to include(installed_gems_stats)
     end
 
     it "with --without two groups" do

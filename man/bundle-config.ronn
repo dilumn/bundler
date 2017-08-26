@@ -35,6 +35,10 @@ local and global sources. Not compatible with --global or --local flag.
 Executing bundle with the `BUNDLE_IGNORE_CONFIG` environment variable set will
 cause it to ignore all configuration.
 
+Executing `bundle config disable_multisource true` upgrades the warning about
+the Gemfile containing multiple primary sources to an error. Executing `bundle
+config --delete disable_multisource` downgrades this error to a warning.
+
 ## BUILD OPTIONS
 
 You can use `bundle config` to give bundler the flags to pass to the gem
@@ -70,14 +74,20 @@ The canonical form of this configuration is `"without"`. To convert the canonica
 form to the environment variable form, capitalize it, and prepend `BUNDLE_`. The
 environment variable form of `"without"` is `BUNDLE_WITHOUT`.
 
+Any periods in the configuration keys must be replaced with two underscores when
+setting it via environment variables. The configuration key `local.rack` becomes
+the environment variable `BUNDLE_LOCAL__RACK`.
+
 ## LIST OF AVAILABLE KEYS
 
 The following is a list of all configuration keys and their purpose. You can
 learn more about their operation in [bundle install(1)][bundle-install].
 
 * `path` (`BUNDLE_PATH`):
-  The location on disk to install gems. Defaults to `$GEM_HOME` in development
-  and `vendor/bundler` when `--deployment` is used
+  The location on disk where all gems in your bundle will be located regardless
+  of `$GEM_HOME` or `$GEM_PATH` values. Bundle gems not found in this location
+  will be installed by `bundle install`. Defaults to `Gem.dir`. When --deployment is
+  used, defaults to vendor/bundle.
 * `frozen` (`BUNDLE_FROZEN`):
   Disallow changes to the `Gemfile`. Defaults to `true` when `--deployment`
   is used.
@@ -86,31 +96,40 @@ learn more about their operation in [bundle install(1)][bundle-install].
 * `bin` (`BUNDLE_BIN`):
   Install executables from gems in the bundle to the specified directory.
   Defaults to `false`.
+* `gemfile` (`BUNDLE_GEMFILE`):
+  The name of the file that bundler should use as the `Gemfile`. This location
+  of this file also sets the root of the project, which is used to resolve
+  relative paths in the `Gemfile`, among other things. By default, bundler
+  will search up from the current working directory until it finds a
+  `Gemfile`.
 * `ssl_ca_cert` (`BUNDLE_SSL_CA_CERT`):
   Path to a designated CA certificate file or folder containing multiple
   certificates for trusted CAs in PEM format.
 * `ssl_client_cert` (`BUNDLE_SSL_CLIENT_CERT`):
   Path to a designated file containing a X.509 client certificate
   and key in PEM format.
+* `cache_path` (`BUNDLE_CACHE_PATH`): The directory that bundler will place
+  cached gems in when running <code>bundle package</code>, and that bundler
+  will look in when installing gems.
+* `disable_multisource` (`BUNDLE_DISABLE_MULTISOURCE`): When set, Gemfiles
+  containing multiple sources will produce errors instead of warnings. Use
+  `bundle config --delete disable_multisource` to unset.
+* `ignore_messages` (`BUNDLE_IGNORE_MESSAGES`): When set, no post install
+  messages will be printed. To silence a single gem, use dot notation like
+  `ignore_messages.httparty true`.
+* `retry` (`BUNDLE_RETRY`):
+   The number of times to retry failed network requests. Defaults to `3`.
+* `redirect` (`BUNDLE_REDIRECT`):
+   The number of redirects allowed for network requests. Defaults to `5`.
+* `timeout` (`BUNDLE_TIMEOUT`):
+   The seconds allowed before timing out for network requests. Defaults to `10`.
 
 In general, you should set these settings per-application by using the applicable
-flag to the [bundle install(1)][bundle-install] command.
+flag to the [bundle install(1)][bundle-install] or [bundle package(1)][bundle-package] command.
 
 You can set them globally either via environment variables or `bundle config`,
 whichever is preferable for your setup. If you use both, environment variables
 will take preference over global settings.
-
-An additional setting is available only as an environment variable:
-
-* `BUNDLE_GEMFILE`:
-  The name of the file that bundler should use as the `Gemfile`. This location
-  of this file also sets the root of the project, which is used to resolve
-  relative paths in the `Gemfile`, among other things. By default, bundler
-  will search up from the current working directory until it finds a
-  `Gemfile`.
-
-Bundler will ignore any `BUNDLE_GEMFILE` entries in local or global
-configuration files.
 
 ## LOCAL GIT REPOS
 
@@ -162,9 +181,13 @@ For example, to use a mirror of rubygems.org hosted at
 Bundler allows you to configure credentials for any gem source, which allows
 you to avoid putting secrets into your Gemfile.
 
-    bundle config SOURCE_URL USERNAME:PASSWORD
+    bundle config SOURCE_HOSTNAME USERNAME:PASSWORD
 
 For example, to save the credentials of user `claudette` for the gem source at
 `gems.longerous.com`, you would run:
 
-    bundle config https://gems.longerous.com/ claudette:s00pers3krit
+    bundle config gems.longerous.com claudette:s00pers3krit
+
+Or you can set the credentials as an environment variable like this:
+
+    export BUNDLE_GEMS__LONGEROUS__COM="claudette:s00pers3krit"

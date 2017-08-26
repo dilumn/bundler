@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 module Bundler
   class Environment
     attr_reader :root
@@ -6,7 +7,7 @@ module Bundler
       @root = root
       @definition = definition
 
-      env_file = Bundler.app_config_path.join('environment.rb')
+      env_file = Bundler.app_config_path.join("environment.rb")
       env_file.rmtree if env_file.exist?
     end
 
@@ -30,13 +31,12 @@ module Bundler
       @definition.current_dependencies
     end
 
-    def lock
-      @definition.lock(Bundler.default_lockfile)
+    def lock(opts = {})
+      @definition.lock(Bundler.default_lockfile, opts[:preserve_unknown_sections])
     end
 
     def update(*gems)
       # Nothing
     end
-
   end
 end

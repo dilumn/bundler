@@ -1,6 +1,7 @@
 # encoding: utf-8
-require 'spec_helper'
-require 'bundler'
+# frozen_string_literal: true
+require "spec_helper"
+require "bundler"
 
 describe Bundler do
   describe "#load_gemspec_uncached" do
@@ -17,16 +18,15 @@ describe Bundler do
         end
       end
 
-      context "on Ruby 1.8", :ruby => "1.8" do
-        it "catches YAML syntax errors" do
-          expect { subject }.to raise_error(Bundler::GemspecError)
-        end
+      it "catches YAML syntax errors" do
+        expect { subject }.to raise_error(Bundler::GemspecError)
       end
 
-      context "on Ruby 1.9", :ruby => "1.9" do
+      context "on Rubies with a settable YAML engine", :if => defined?(YAML::ENGINE) do
         context "with Syck as YAML::Engine" do
           it "raises a GemspecError after YAML load throws ArgumentError" do
-            orig_yamler, YAML::ENGINE.yamler = YAML::ENGINE.yamler, 'syck'
+            orig_yamler = YAML::ENGINE.yamler
+            YAML::ENGINE.yamler = "syck"
 
             expect { subject }.to raise_error(Bundler::GemspecError)
 
@@ -36,7 +36,8 @@ describe Bundler do
 
         context "with Psych as YAML::Engine" do
           it "raises a GemspecError after YAML load throws Psych::SyntaxError" do
-            orig_yamler, YAML::ENGINE.yamler = YAML::ENGINE.yamler, 'psych'
+            orig_yamler = YAML::ENGINE.yamler
+            YAML::ENGINE.yamler = "psych"
 
             expect { subject }.to raise_error(Bundler::GemspecError)
 
@@ -46,17 +47,18 @@ describe Bundler do
       end
     end
 
-    context "with correct YAML file" do
+    context "with correct YAML file", :if => defined?(Encoding) do
       it "can load a gemspec with unicode characters with default ruby encoding" do
         # spec_helper forces the external encoding to UTF-8 but that's not the
-        # ruby default.
-        if defined?(Encoding)
-          encoding = Encoding.default_external
-          Encoding.default_external = "ASCII"
-        end
+        # default until Ruby 2.0
+        verbose = $VERBOSE
+        $VERBOSE = false
+        encoding = Encoding.default_external
+        Encoding.default_external = "ASCII"
+        $VERBOSE = verbose
 
         File.open(app_gemspec_path, "wb") do |file|
-          file.puts <<-GEMSPEC.gsub(/^\s+/, '')
+          file.puts <<-GEMSPEC.gsub(/^\s+/, "")
             # -*- encoding: utf-8 -*-
             Gem::Specification.new do |gem|
               gem.author = "André the Giant"
@@ -66,9 +68,76 @@ describe Bundler do
 
         expect(subject.author).to eq("André the Giant")
 
-        Encoding.default_external = encoding if defined?(Encoding)
+        verbose = $VERBOSE
+        $VERBOSE = false
+        Encoding.default_external = encoding
+        $VERBOSE = verbose
       end
     end
 
+    it "sets loaded_from" do
+      app_gemspec_path.open("w") do |f|
+        f.puts <<-GEMSPEC
+          Gem::Specification.new do |gem|
+            gem.name = "validated"
+          end
+        GEMSPEC
+      end
+
+      expect(subject.loaded_from).to eq(app_gemspec_path.expand_path.to_s)
+    end
+
+    context "validate is true" do
+      subject { Bundler.load_gemspec_uncached(app_gemspec_path, true) }
+
+      it "validates the specification" do
+        app_gemspec_path.open("w") do |f|
+          f.puts <<-GEMSPEC
+            Gem::Specification.new do |gem|
+              gem.name = "validated"
+            end
+          GEMSPEC
+        end
+        expect(Bundler.rubygems).to receive(:validate).with have_attributes(:name => "validated")
+        subject
+      end
+    end
+  end
+
+  describe "#which" do
+    let(:executable) { "executable" }
+    let(:path) { %w(/a /b c ../d "/e") }
+    let(:expected) { "executable" }
+
+    before do
+      ENV["PATH"] = path.join(File::PATH_SEPARATOR)
+
+      allow(File).to receive(:file?).and_return(false)
+      allow(File).to receive(:executable?).and_return(false)
+      if expected
+        expect(File).to receive(:file?).with(expected).and_return(true)
+        expect(File).to receive(:executable?).with(expected).and_return(true)
+      end
+    end
+
+    subject { described_class.which(executable) }
+
+    shared_examples_for "it returns the correct executable" do
+      it "returns the expected file" do
+        expect(subject).to eq(expected)
+      end
+    end
+
+    it_behaves_like "it returns the correct executable"
+
+    context "when the executable in inside a quoted path" do
+      let(:expected) { "/e/executable" }
+      it_behaves_like "it returns the correct executable"
+    end
+
+    context "when the executable is not found" do
+      let(:expected) { nil }
+      it_behaves_like "it returns the correct executable"
+    end
   end
 end

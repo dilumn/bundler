@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "spec_helper"
 
 describe "bundle binstubs <gem>" do
@@ -45,8 +46,8 @@ describe "bundle binstubs <gem>" do
         gem "rack"
       G
 
-      bundle "binstubs", :exitstatus => true
-      expect(exitstatus).to eq(1)
+      bundle "binstubs"
+      expect(exitstatus).to eq(1) if exitstatus
       expect(out).to eq("`bundle binstubs` needs at least one gem to run.")
     end
 
@@ -68,7 +69,7 @@ describe "bundle binstubs <gem>" do
         s.executables = %w(foo)
       end
       install_gemfile <<-G
-        gem "foo", :git => "#{lib_path('foo')}"
+        gem "foo", :git => "#{lib_path("foo")}"
       G
 
       bundle "binstubs foo"
@@ -79,11 +80,11 @@ describe "bundle binstubs <gem>" do
     it "installs binstubs from path gems" do
       FileUtils.mkdir_p(lib_path("foo/bin"))
       FileUtils.touch(lib_path("foo/bin/foo"))
-      build_lib "foo" , "1.0", :path => lib_path("foo") do |s|
+      build_lib "foo", "1.0", :path => lib_path("foo") do |s|
         s.executables = %w(foo)
       end
       install_gemfile <<-G
-        gem "foo", :path => "#{lib_path('foo')}"
+        gem "foo", :path => "#{lib_path("foo")}"
       G
 
       bundle "binstubs foo"
@@ -111,9 +112,9 @@ describe "bundle binstubs <gem>" do
         source "file://#{gem_repo1}"
       G
 
-      bundle "binstubs doesnt_exist", :exitstatus => true
+      bundle "binstubs doesnt_exist"
 
-      expect(exitstatus).to eq(7)
+      expect(exitstatus).to eq(7) if exitstatus
       expect(out).to eq("Could not find gem 'doesnt_exist'.")
     end
   end
@@ -147,7 +148,7 @@ describe "bundle binstubs <gem>" do
   context "when the bin already exists" do
     it "doesn't overwrite and warns" do
       FileUtils.mkdir_p(bundled_app("bin"))
-      File.open(bundled_app("bin/rackup"), 'wb') do |file|
+      File.open(bundled_app("bin/rackup"), "wb") do |file|
         file.print "OMG"
       end
 
@@ -167,7 +168,7 @@ describe "bundle binstubs <gem>" do
     context "when using --force" do
       it "overwrites the binstub" do
         FileUtils.mkdir_p(bundled_app("bin"))
-        File.open(bundled_app("bin/rackup"), 'wb') do |file|
+        File.open(bundled_app("bin/rackup"), "wb") do |file|
           file.print "OMG"
         end
 
@@ -192,8 +193,8 @@ describe "bundle binstubs <gem>" do
       G
 
       bundle "binstubs rack-obama"
-      expect(out).to include('rack-obama has no executables')
-      expect(out).to include('rack has: rackup')
+      expect(out).to include("rack-obama has no executables")
+      expect(out).to include("rack has: rackup")
     end
 
     it "works if child gems don't have bins" do
@@ -203,7 +204,7 @@ describe "bundle binstubs <gem>" do
       G
 
       bundle "binstubs actionpack"
-      expect(out).to include('no executables for the gem actionpack')
+      expect(out).to include("no executables for the gem actionpack")
     end
 
     it "works if the gem has development dependencies" do
@@ -213,7 +214,32 @@ describe "bundle binstubs <gem>" do
       G
 
       bundle "binstubs with_development_dependency"
-      expect(out).to include('no executables for the gem with_development_dependency')
+      expect(out).to include("no executables for the gem with_development_dependency")
+    end
+  end
+
+  context "when BUNDLE_INSTALL is specified" do
+    it "performs an automatic bundle install" do
+      gemfile <<-G
+        source "file://#{gem_repo1}"
+        gem "rack"
+      G
+
+      bundle "config auto_install 1"
+      bundle "binstubs rack"
+      expect(out).to include("Installing rack 1.0.0")
+      should_be_installed "rack 1.0.0"
+    end
+
+    it "does nothing when already up to date" do
+      install_gemfile <<-G
+        source "file://#{gem_repo1}"
+        gem "rack"
+      G
+
+      bundle "config auto_install 1"
+      bundle "binstubs rack", :env => { "BUNDLE_INSTALL" => 1 }
+      expect(out).not_to include("Installing rack 1.0.0")
     end
   end
 end

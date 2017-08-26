@@ -1,12 +1,12 @@
-require 'fileutils'
-require 'uri'
-require 'digest/sha1'
+# frozen_string_literal: true
+require "fileutils"
+require "uri"
+require "digest/sha1"
 
 module Bundler
   class Source
-
     class Git < Path
-      autoload :GitProxy, 'bundler/source/git/git_proxy'
+      autoload :GitProxy, "bundler/source/git/git_proxy"
 
       attr_reader :uri, :ref, :branch, :options, :submodules
 
@@ -18,14 +18,14 @@ module Bundler
         @allow_remote = false
 
         # Stringify options that could be set as symbols
-        %w(ref branch tag revision).each{|k| options[k] = options[k].to_s if options[k] }
+        %w(ref branch tag revision).each {|k| options[k] = options[k].to_s if options[k] }
 
-        @uri        = options["uri"]
+        @uri        = options["uri"] || ""
         @branch     = options["branch"]
-        @ref        = options["ref"] || options["branch"] || options["tag"] || 'master'
+        @ref        = options["ref"] || options["branch"] || options["tag"] || "master"
         @submodules = options["submodules"]
         @name       = options["name"]
-        @version    = options["version"]
+        @version    = options["version"].to_s.strip.gsub("-", ".pre.")
 
         @copied     = false
         @local      = false
@@ -36,7 +36,7 @@ module Bundler
       end
 
       def to_lock
-        out = "GIT\n"
+        out = String.new("GIT\n")
         out << "  remote: #{@uri}\n"
         out << "  revision: #{revision}\n"
         %w(ref branch tag submodules).each do |opt|
@@ -46,17 +46,17 @@ module Bundler
         out << "  specs:\n"
       end
 
-      def eql?(o)
-        o.is_a?(Git)         &&
-        uri == o.uri         &&
-        ref == o.ref         &&
-        branch == o.branch   &&
-        name == o.name       &&
-        version == o.version &&
-        submodules == o.submodules
+      def hash
+        [self.class, uri, ref, branch, name, version, submodules].hash
       end
 
-      alias == eql?
+      def eql?(other)
+        other.is_a?(Git) && uri == other.uri && ref == other.ref &&
+          branch == other.branch && name == other.name &&
+          version == other.version && submodules == other.submodules
+      end
+
+      alias_method :==, :eql?
 
       def to_s
         at = if local?
@@ -66,11 +66,18 @@ module Bundler
         else
           ref
         end
-        "#{uri} (at #{at})"
+
+        rev = begin
+                "@#{shortref_for_display(revision)}"
+              rescue GitError
+                nil
+              end
+
+        "#{uri} (at #{at}#{rev})"
       end
 
       def name
-        File.basename(@uri, '.git')
+        File.basename(@uri, ".git")
       end
 
       # This is the path which is going to contain a specific
@@ -89,7 +96,7 @@ module Bundler
         end
       end
 
-      alias :path :install_path
+      alias_method :path, :install_path
 
       def extension_dir_name
         "#{base_name}-#{shortref_for_path(revision)}"
@@ -141,9 +148,7 @@ module Bundler
 
       # TODO: actually cache git specs
       def specs(*)
-        if has_app_cache? && !local?
-          set_local!(app_cache_path)
-        end
+        set_local!(app_cache_path) if has_app_cache? && !local?
 
         if requires_checkout? && !@copied
           git_proxy.checkout
@@ -155,19 +160,18 @@ module Bundler
         local_specs
       end
 
-      def install(spec)
-        debug = nil
-        if requires_checkout? && !@copied
-          debug = "  * Checking out revision: #{ref}"
+      def install(spec, force = false)
+        Bundler.ui.info "Using #{version_message(spec)} from #{self}"
+
+        if requires_checkout? && !@copied && !force
+          Bundler.ui.debug "  * Checking out revision: #{ref}"
           git_proxy.copy_to(install_path, submodules)
           serialize_gemspecs_in(install_path)
           @copied = true
         end
         generate_bin(spec)
-        if requires_checkout? && spec.post_install_message
-          Installer.post_install_messages[spec.name] = spec.post_install_message
-        end
-        ["Using #{version_message(spec)} from #{to_s}", nil, debug]
+
+        requires_checkout? ? spec.post_install_message : nil
       end
 
       def cache(spec, custom_path = nil)
@@ -185,7 +189,7 @@ module Bundler
         super
       rescue PathError => e
         Bundler.ui.trace e
-        raise GitError, "#{to_s} is not yet checked out. Run `bundle install` first."
+        raise GitError, "#{self} is not yet checked out. Run `bundle install` first."
       end
 
       # This is the path which is going to contain a cache
@@ -216,7 +220,11 @@ module Bundler
         @allow_remote || @allow_cached
       end
 
-      private
+    private
+
+      def build_extensions(installer)
+        super if Bundler.rubygems.spec_missing_extensions?(installer.spec)
+      end
 
       def serialize_gemspecs_in(destination)
         expanded_path = destination.expand_path(Bundler.root)
@@ -226,7 +234,7 @@ module Bundler
           # The gemspecs we cache should already be evaluated.
           spec = Bundler.load_gemspec(spec_path)
           next unless spec
-          File.open(spec_path, 'wb') {|file| file.write(spec.to_ruby) }
+          File.open(spec_path, "wb") {|file| file.write(spec.to_ruby) }
         end
       end
 
@@ -249,7 +257,7 @@ module Bundler
       end
 
       def base_name
-        File.basename(uri.sub(%r{^(\w+://)?([^/:]+:)?(//\w*/)?(\w*/)*},''),".git")
+        File.basename(uri.sub(%r{^(\w+://)?([^/:]+:)?(//\w*/)?(\w*/)*}, ""), ".git")
       end
 
       def shortref_for_display(ref)
@@ -264,7 +272,7 @@ module Bundler
         if uri =~ %r{^\w+://(\w+@)?}
           # Downcase the domain component of the URI
           # and strip off a trailing slash, if one is present
-          input = URI.parse(uri).normalize.to_s.sub(%r{/$},'')
+          input = URI.parse(uri).normalize.to_s.sub(%r{/$}, "")
         else
           # If there is no URI scheme, assume it is an ssh/git URI
           input = uri
@@ -283,8 +291,6 @@ module Bundler
       def git_proxy
         @git_proxy ||= GitProxy.new(cache_path, uri, ref, cached_revision, self)
       end
-
     end
-
   end
 end

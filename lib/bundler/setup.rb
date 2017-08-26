@@ -1,8 +1,10 @@
-require 'bundler/shared_helpers'
+# frozen_string_literal: true
+require "bundler/shared_helpers"
 
 if Bundler::SharedHelpers.in_bundle?
-  require 'bundler'
-  if STDOUT.tty?
+  require "bundler"
+
+  if STDOUT.tty? || ENV["BUNDLER_FORCE_TTY"]
     begin
       Bundler.setup
     rescue Bundler::BundlerError => e
@@ -20,4 +22,6 @@ if Bundler::SharedHelpers.in_bundle?
   # Add bundler to the load path after disabling system gems
   bundler_lib = File.expand_path("../..", __FILE__)
   $LOAD_PATH.unshift(bundler_lib) unless $LOAD_PATH.include?(bundler_lib)
+
+  Bundler.ui = nil
 end

@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "spec_helper"
 
 describe "Bundler.load" do
@@ -29,26 +30,42 @@ describe "Bundler.load" do
     end
 
     it "ignores blank BUNDLE_GEMFILEs" do
-      expect {
-        ENV['BUNDLE_GEMFILE'] = ""
+      expect do
+        ENV["BUNDLE_GEMFILE"] = ""
         Bundler.load
-      }.not_to raise_error()
+      end.not_to raise_error
+    end
+  end
+
+  describe "with a gems.rb file" do
+    before(:each) do
+      create_file "gems.rb", <<-G
+        source "file://#{gem_repo1}"
+        gem "rack"
+      G
     end
 
+    it "provides a list of the env dependencies" do
+      expect(Bundler.load.dependencies).to have_dep("rack", ">= 0")
+    end
+
+    it "provides a list of the resolved gems" do
+      expect(Bundler.load.gems).to have_gem("rack-1.0.0", "bundler-#{Bundler::VERSION}")
+    end
   end
 
   describe "without a gemfile" do
     it "raises an exception if the default gemfile is not found" do
-      expect {
+      expect do
         Bundler.load
-      }.to raise_error(Bundler::GemfileNotFound, /could not locate gemfile/i)
+      end.to raise_error(Bundler::GemfileNotFound, /could not locate gemfile/i)
     end
 
     it "raises an exception if a specified gemfile is not found" do
-      expect {
-        ENV['BUNDLE_GEMFILE'] = "omg.rb"
+      expect do
+        ENV["BUNDLE_GEMFILE"] = "omg.rb"
         Bundler.load
-      }.to raise_error(Bundler::GemfileNotFound, /omg\.rb/)
+      end.to raise_error(Bundler::GemfileNotFound, /omg\.rb/)
     end
 
     it "does not find a Gemfile above the testing directory" do
@@ -63,7 +80,6 @@ describe "Bundler.load" do
         bundler_gemfile.rmtree if @remove_bundler_gemfile
       end
     end
-
   end
 
   describe "when called twice" do
@@ -103,5 +119,4 @@ describe "Bundler.load" do
       end
     end
   end
-
 end

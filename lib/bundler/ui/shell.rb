@@ -1,7 +1,10 @@
+# frozen_string_literal: true
+require "bundler/vendored_thor"
+
 module Bundler
   module UI
     class Shell
-      LEVELS = %w(silent error warn confirm info debug)
+      LEVELS = %w(silent error warn confirm info debug).freeze
 
       attr_writer :shell
 
@@ -10,7 +13,8 @@ module Bundler
           Thor::Base.shell = Thor::Shell::Basic
         end
         @shell = Thor::Base.shell.new
-        @level = ENV['DEBUG'] ? "debug" : "info"
+        @level = ENV["DEBUG"] ? "debug" : "info"
+        @warning_history = []
       end
 
       def info(msg, newline = nil)
@@ -22,6 +26,8 @@ module Bundler
       end
 
       def warn(msg, newline = nil)
+        return if @warning_history.include? msg
+        @warning_history << msg
         tell_me(msg, :yellow, newline) if level("warn")
       end
 
@@ -46,6 +52,14 @@ module Bundler
         @shell.ask(msg)
       end
 
+      def yes?(msg)
+        @shell.yes?(msg)
+      end
+
+      def no?
+        @shell.no?(msg)
+      end
+
       def level=(level)
         raise ArgumentError unless LEVELS.include?(level.to_s)
         @level = level
@@ -55,14 +69,15 @@ module Bundler
         name ? LEVELS.index(name) <= LEVELS.index(@level) : @level
       end
 
-      def trace(e, newline = nil)
-        return unless debug?
-        msg = ["#{e.class}: #{e.message}", *e.backtrace].join("\n")
+      def trace(e, newline = nil, force = false)
+        return unless debug? || force
+        msg = "#{e.class}: #{e.message}\n#{e.backtrace.join("\n  ")}"
         tell_me(msg, nil, newline)
       end
 
       def silence
-        old_level, @level = @level, "silent"
+        old_level = @level
+        @level = "silent"
         yield
       ensure
         @level = old_level
@@ -82,7 +97,7 @@ module Bundler
 
       def strip_leading_spaces(text)
         spaces = text[/\A\s+/, 0]
-        spaces ? text.gsub(/#{spaces}/, '') : text
+        spaces ? text.gsub(/#{spaces}/, "") : text
       end
 
       def word_wrap(text, line_width = @shell.terminal_width)

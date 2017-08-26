@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require "spec_helper"
 
 describe "Bundler.require" do
@@ -37,9 +38,17 @@ describe "Bundler.require" do
       s.write "lib/eight.rb", "puts 'eight'"
     end
 
+    build_lib "nine", "1.0.0" do |s|
+      s.write "lib/nine.rb", "puts 'nine'"
+    end
+
+    build_lib "ten", "1.0.0" do |s|
+      s.write "lib/ten.rb", "puts 'ten'"
+    end
+
     gemfile <<-G
       path "#{lib_path}"
-      gem "one", :group => :bar, :require => %w(baz qux)
+      gem "one", :group => :bar, :require => %w[baz qux]
       gem "two"
       gem "three", :group => :not
       gem "four", :require => false
@@ -47,6 +56,10 @@ describe "Bundler.require" do
       gem "six", :group => "string"
       gem "seven", :group => :not
       gem "eight", :require => true, :group => :require_true
+      env "BUNDLER_TEST" => "nine" do
+        gem "nine", :require => true
+      end
+      gem "ten", :install_if => lambda { ENV["BUNDLER_TEST"] == "ten" }
     G
   end
 
@@ -73,7 +86,7 @@ describe "Bundler.require" do
 
     # required in resolver order instead of gemfile order
     run("Bundler.require(:not)")
-    expect(out.split("\n").sort).to eq(['seven', 'three'])
+    expect(out.split("\n").sort).to eq(%w(seven three))
 
     # test require: true
     run "Bundler.require(:require_true)"
@@ -85,17 +98,66 @@ describe "Bundler.require" do
     expect(out).to eq("two\nfive")
   end
 
+  it "allows requiring gems which are scoped by env" do
+    ENV["BUNDLER_TEST"] = "nine"
+    run "Bundler.require"
+    expect(out).to eq("two\nnine")
+  end
+
+  it "allows requiring gems which are scoped by install_if" do
+    ENV["BUNDLER_TEST"] = "ten"
+    run "Bundler.require"
+    expect(out).to eq("two\nten")
+  end
+
   it "raises an exception if a require is specified but the file does not exist" do
     gemfile <<-G
       path "#{lib_path}"
       gem "two", :require => 'fail'
     G
 
-    load_error_run <<-R, 'fail'
+    load_error_run <<-R, "fail"
       Bundler.require
     R
 
     expect(err).to eq("ZOMG LOAD ERROR")
+  end
+
+  it "displays a helpful message if the required gem throws an error" do
+    build_lib "faulty", "1.0.0" do |s|
+      s.write "lib/faulty.rb", "raise RuntimeError.new(\"Gem Internal Error Message\")"
+    end
+
+    gemfile <<-G
+      path "#{lib_path}"
+      gem "faulty"
+    G
+
+    run "Bundler.require", :expect_err => true
+    expect(err).to match("error while trying to load the gem 'faulty'")
+    expect(err).to match("Gem Internal Error Message")
+  end
+
+  it "doesn't swallow the error when the library has an unrelated error" do
+    build_lib "loadfuuu", "1.0.0" do |s|
+      s.write "lib/loadfuuu.rb", "raise LoadError.new(\"cannot load such file -- load-bar\")"
+    end
+
+    gemfile <<-G
+      path "#{lib_path}"
+      gem "loadfuuu"
+    G
+
+    cmd = <<-RUBY
+      begin
+        Bundler.require
+      rescue LoadError => e
+        $stderr.puts "ZOMG LOAD ERROR: \#{e.message}"
+      end
+    RUBY
+    run(cmd, :expect_err => true)
+
+    expect(err).to eq("ZOMG LOAD ERROR: cannot load such file -- load-bar")
   end
 
   describe "with namespaced gems" do
@@ -103,7 +165,7 @@ describe "Bundler.require" do
       build_lib "jquery-rails", "1.0.0" do |s|
         s.write "lib/jquery/rails.rb", "puts 'jquery/rails'"
       end
-      lib_path('jquery-rails-1.0.0/lib/jquery-rails.rb').rmtree
+      lib_path("jquery-rails-1.0.0/lib/jquery-rails.rb").rmtree
     end
 
     it "requires gem names that are namespaced" do
@@ -140,7 +202,7 @@ describe "Bundler.require" do
         gem 'jquery-rails', :require => 'jquery-rails'
       G
 
-      load_error_run <<-R, 'jquery-rails'
+      load_error_run <<-R, "jquery-rails"
         Bundler.require
       R
       expect(err).to eq("ZOMG LOAD ERROR")
@@ -170,8 +232,9 @@ describe "Bundler.require" do
 
     it "doesn't swallow the error when the library has an unrelated error" do
       build_lib "load-fuuu", "1.0.0" do |s|
-        s.write "lib/load-fuuu.rb", "raise LoadError.new(\"cannot load such file -- load-bar\")"
+        s.write "lib/load/fuuu.rb", "raise LoadError.new(\"cannot load such file -- load-bar\")"
       end
+      lib_path("load-fuuu-1.0.0/lib/load-fuuu.rb").rmtree
 
       gemfile <<-G
         path "#{lib_path}"
@@ -290,10 +353,10 @@ describe "Bundler.require" do
           gem "busted_require"
         G
 
-        load_error_run <<-R, 'no_such_file_omg'
+        load_error_run <<-R, "no_such_file_omg"
           Bundler.require
         R
-        expect(err).to eq('ZOMG LOAD ERROR')
+        expect(err).to eq("ZOMG LOAD ERROR")
       end
     end
   end

@@ -1,4 +1,5 @@
-require 'pathname'
+# frozen_string_literal: true
+require "pathname"
 
 module Spec
   module Path
@@ -24,7 +25,7 @@ module Spec
       root.join(*path)
     end
 
-    alias bundled_app1 bundled_app
+    alias_method :bundled_app1, :bundled_app
 
     def bundled_app2(*path)
       root = tmp.join("bundled_app2")
@@ -77,7 +78,7 @@ module Spec
     end
 
     def bundler_path
-      Pathname.new(File.expand_path('../../../lib', __FILE__))
+      Pathname.new(File.expand_path("../../../lib", __FILE__))
     end
 
     extend self
