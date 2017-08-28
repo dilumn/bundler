@@ -107,19 +107,21 @@ RSpec.describe "bundle binstubs <gem>" do
         end
 
         it "runs the correct version of bundler when the version is older" do
-          lockfile lockfile.gsub(system_bundler_version, "1.0")
+          simulate_bundler_version "55"
+          lockfile lockfile.gsub(system_bundler_version, "44.0")
           sys_exec "#{bundled_app("bin/bundle")} install"
           expect(exitstatus).to eq(42) if exitstatus
-          expect(last_command.stderr).to include("Activating bundler (1.0) failed:").
-            and include("To install the version of bundler this project requires, run `gem install bundler -v '1.0'`")
+          expect(last_command.stderr).to include("Activating bundler (44.0) failed:").
+            and include("To install the version of bundler this project requires, run `gem install bundler -v '44.0'`")
         end
 
         it "runs the correct version of bundler when the version is a pre-release" do
-          lockfile lockfile.gsub(system_bundler_version, "1.12.0.a")
+          simulate_bundler_version "55"
+          lockfile lockfile.gsub(system_bundler_version, "2.12.0.a")
           sys_exec "#{bundled_app("bin/bundle")} install"
           expect(exitstatus).to eq(42) if exitstatus
-          expect(last_command.stderr).to include("Activating bundler (1.12.0.a) failed:").
-            and include("To install the version of bundler this project requires, run `gem install bundler -v '1.12.0.a'`")
+          expect(last_command.stderr).to include("Activating bundler (2.12.0.a) failed:").
+            and include("To install the version of bundler this project requires, run `gem install bundler -v '2.12.0.a'`")
         end
       end
 
@@ -263,20 +265,29 @@ RSpec.describe "bundle binstubs <gem>" do
     end
   end
 
-  context "after installing with --standalone" do
+  context "with --standalone option" do
     before do
-      install_gemfile! <<-G
+      install_gemfile <<-G
         source "file://#{gem_repo1}"
         gem "rack"
       G
-      forgotten_command_line_options(:path => "bundle")
-      bundle! "install", :standalone => true
     end
 
-    it "includes the standalone path" do
-      bundle! "binstubs rack", :standalone => true
-      standalone_line = File.read(bundled_app("bin/rackup")).each_line.find {|line| line.include? "$:.unshift" }.strip
-      expect(standalone_line).to eq %($:.unshift File.expand_path "../../bundle", path.realpath)
+    it "generates a standalone binstub" do
+      bundle! "binstubs rack --standalone"
+      expect(bundled_app("bin/rackup")).to exist
+    end
+
+    it "generates a binstub that does not depend on rubygems or bundler" do
+      bundle! "binstubs rack --standalone"
+      expect(File.read(bundled_app("bin/rackup"))).to_not include("Gem.bin_path")
+    end
+
+    context "when specified --path option" do
+      it "generates a standalone binstub at the given path" do
+        bundle! "binstubs rack --standalone --path foo"
+        expect(bundled_app("foo/rackup")).to exist
+      end
     end
   end
 
