@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require File.expand_path("../endpoint", __FILE__)
 
 Artifice.deactivate
@@ -9,6 +11,10 @@ class EndpointExtra < Endpoint
 
   get "/extra/specs.4.8.gz" do
     File.read("#{gem_repo2}/specs.4.8.gz")
+  end
+
+  get "/extra/prerelease_specs.4.8.gz" do
+    File.read("#{gem_repo2}/prerelease_specs.4.8.gz")
   end
 
   get "/extra/quick/Marshal.4.8/:id" do

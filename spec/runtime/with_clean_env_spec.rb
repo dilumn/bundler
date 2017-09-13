@@ -1,80 +1,144 @@
-require "spec_helper"
+# frozen_string_literal: true
 
-describe "Bundler.with_env helpers" do
+RSpec.describe "Bundler.with_env helpers" do
+  describe "Bundler.original_env" do
+    before do
+      bundle "config path vendor/bundle"
+      gemfile ""
+      bundle "install"
+    end
 
-  shared_examples_for "Bundler.with_*_env" do
-    it "should reset and restore the environment" do
-      gem_path = ENV['GEM_PATH']
-
-      Bundler.with_clean_env do
-        `echo $GEM_PATH`.strip.should_not == gem_path
+    it "should return the PATH present before bundle was activated" do
+      code = "print Bundler.original_env['PATH']"
+      path = `getconf PATH`.strip + "#{File::PATH_SEPARATOR}/foo"
+      with_path_as(path) do
+        result = bundle("exec '#{Gem.ruby}' -e #{code.dump}")
+        expect(result).to eq(path)
       end
+    end
 
-      ENV['GEM_PATH'].should == gem_path
+    it "should return the GEM_PATH present before bundle was activated" do
+      code = "print Bundler.original_env['GEM_PATH']"
+      gem_path = ENV["GEM_PATH"] + ":/foo"
+      with_gem_path_as(gem_path) do
+        result = bundle("exec '#{Gem.ruby}' -e #{code.inspect}")
+        expect(result).to eq(gem_path)
+      end
+    end
+
+    it "works with nested bundle exec invocations" do
+      create_file("exe.rb", <<-'RB')
+        count = ARGV.first.to_i
+        exit if count < 0
+        STDERR.puts "#{count} #{ENV["PATH"].end_with?(":/foo")}"
+        if count == 2
+          ENV["PATH"] = "#{ENV["PATH"]}:/foo"
+        end
+        exec(Gem.ruby, __FILE__, (count - 1).to_s)
+      RB
+      path = `getconf PATH`.strip + File::PATH_SEPARATOR + File.dirname(Gem.ruby)
+      with_path_as(path) do
+        bundle!("exec '#{Gem.ruby}' #{bundled_app("exe.rb")} 2")
+      end
+      expect(err).to eq <<-EOS.strip
+2 false
+1 true
+0 true
+      EOS
+    end
+
+    it "removes variables that bundler added" do
+      system_gems :bundler
+      original = ruby!('puts ENV.to_a.map {|e| e.join("=") }.sort.join("\n")')
+      code = 'puts Bundler.original_env.to_a.map {|e| e.join("=") }.sort.join("\n")'
+      bundle!("exec '#{Gem.ruby}' -e #{code.inspect}", :system_bundler => true)
+      expect(out).to eq original
     end
   end
 
-  around do |example|
-    env = Bundler::ORIGINAL_ENV.dup
-    Bundler::ORIGINAL_ENV['BUNDLE_PATH'] = "./Gemfile"
-    example.run
-    Bundler::ORIGINAL_ENV.replace env
-  end
-
-  describe "Bundler.with_clean_env" do
-
-    it_should_behave_like "Bundler.with_*_env"
-
-    it "should not pass any bundler environment variables" do
-      Bundler.with_clean_env do
-        `echo $BUNDLE_PATH`.strip.should_not == './Gemfile'
-      end
+  describe "Bundler.clean_env", :bundler => "< 2" do
+    before do
+      bundle "config path vendor/bundle"
+      gemfile ""
+      bundle "install"
     end
 
-    it "should not pass RUBYOPT changes" do
-      lib_path = File.expand_path('../../../lib', __FILE__)
-      Bundler::ORIGINAL_ENV['RUBYOPT'] = " -I#{lib_path} -rbundler/setup"
-
-      Bundler.with_clean_env do
-        `echo $RUBYOPT`.strip.should_not include '-rbundler/setup'
-        `echo $RUBYOPT`.strip.should_not include "-I#{lib_path}"
-      end
-
-      Bundler::ORIGINAL_ENV['RUBYOPT'].should == " -I#{lib_path} -rbundler/setup"
+    it "should delete BUNDLE_PATH" do
+      code = "print Bundler.clean_env.has_key?('BUNDLE_PATH')"
+      ENV["BUNDLE_PATH"] = "./foo"
+      result = bundle("exec '#{Gem.ruby}' -e #{code.inspect}")
+      expect(result).to eq("false")
     end
 
-    it "should not change ORIGINAL_ENV" do
-      Bundler::ORIGINAL_ENV['BUNDLE_PATH'].should == './Gemfile'
+    it "should remove '-rbundler/setup' from RUBYOPT" do
+      code = "print Bundler.clean_env['RUBYOPT']"
+      ENV["RUBYOPT"] = "-W2 -rbundler/setup"
+      result = bundle("exec '#{Gem.ruby}' -e #{code.inspect}")
+      expect(result).not_to include("-rbundler/setup")
     end
 
+    it "should clean up RUBYLIB" do
+      code = "print Bundler.clean_env['RUBYLIB']"
+      ENV["RUBYLIB"] = root.join("lib").to_s + File::PATH_SEPARATOR + "/foo"
+      result = bundle("exec '#{Gem.ruby}' -e #{code.inspect}")
+      expect(result).to eq("/foo")
+    end
+
+    it "should restore the original MANPATH" do
+      code = "print Bundler.clean_env['MANPATH']"
+      ENV["MANPATH"] = "/foo"
+      ENV["BUNDLER_ORIG_MANPATH"] = "/foo-original"
+      result = bundle("exec '#{Gem.ruby}' -e #{code.inspect}")
+      expect(result).to eq("/foo-original")
+    end
   end
 
   describe "Bundler.with_original_env" do
+    it "should set ENV to original_env in the block" do
+      expected = Bundler.original_env
+      actual = Bundler.with_original_env { ENV.to_hash }
+      expect(actual).to eq(expected)
+    end
 
-    it_should_behave_like "Bundler.with_*_env"
-
-    it "should pass bundler environment variables set before Bundler was run" do
+    it "should restore the environment after execution" do
       Bundler.with_original_env do
-        `echo $BUNDLE_PATH`.strip.should == './Gemfile'
+        ENV["FOO"] = "hello"
       end
+
+      expect(ENV).not_to have_key("FOO")
     end
   end
 
-  describe "Bundler.clean_system" do
+  describe "Bundler.with_clean_env", :bundler => "< 2" do
+    it "should set ENV to clean_env in the block" do
+      expected = Bundler.clean_env
+      actual = Bundler.with_clean_env { ENV.to_hash }
+      expect(actual).to eq(expected)
+    end
+
+    it "should restore the environment after execution" do
+      Bundler.with_clean_env do
+        ENV["FOO"] = "hello"
+      end
+
+      expect(ENV).not_to have_key("FOO")
+    end
+  end
+
+  describe "Bundler.clean_system", :ruby => ">= 1.9", :bundler => "< 2" do
     it "runs system inside with_clean_env" do
-      Bundler.clean_system(%{echo 'if [ "$BUNDLE_PATH" = "" ]; then exit 42; else exit 1; fi' | /bin/sh})
-      $?.exitstatus.should == 42
+      Bundler.clean_system(%(echo 'if [ "$BUNDLE_PATH" = "" ]; then exit 42; else exit 1; fi' | /bin/sh))
+      expect($?.exitstatus).to eq(42)
     end
   end
 
-  describe "Bundler.clean_exec" do
+  describe "Bundler.clean_exec", :ruby => ">= 1.9", :bundler => "< 2" do
     it "runs exec inside with_clean_env" do
       pid = Kernel.fork do
-        Bundler.clean_exec(%{echo 'if [ "$BUNDLE_PATH" = "" ]; then exit 42; else exit 1; fi' | /bin/sh})
+        Bundler.clean_exec(%(echo 'if [ "$BUNDLE_PATH" = "" ]; then exit 42; else exit 1; fi' | /bin/sh))
       end
       Process.wait(pid)
-      $?.exitstatus.should == 42
+      expect($?.exitstatus).to eq(42)
     end
   end
-
 end

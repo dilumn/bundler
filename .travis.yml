@@ -1,39 +1,57 @@
-before_script:
-  - sudo apt-get install groff -y
-  - rake spec:deps
-
+language: ruby
 script: rake spec:travis
+before_script:
+  - travis_retry rake -E 'module ::Bundler; VERSION = "0.0.0"; end' override_version
+  - travis_retry rake spec:travis:deps
+  - travis_retry rake man:build
+  - travis_retry rake spec:rubygems:clone_rubygems_$RGV
 
-rvm:
-  - 1.8.7
-  - 1.9.2
-  - 1.9.3
-
-env:
-  - RGV=v1.3.6
-  - RGV=v1.3.7
-  - RGV=v1.4.2
-  - RGV=v1.5.3
-  - RGV=v1.6.2
-  - RGV=v1.7.2
-  - RGV=v1.8.10
-
-matrix:
-  exclude:
-    - rvm: 1.9.2
-      env: RGV=v1.3.6
-    - rvm: 1.9.2
-      env: RGV=v1.3.7
-    - rvm: 1.9.2
-      env: RGV=v1.4.2
-    - rvm: 1.9.3
-      env: RGV=v1.3.6
-    - rvm: 1.9.3
-      env: RGV=v1.3.7
-    - rvm: 1.9.3
-      env: RGV=v1.4.2
+branches:
+  only:
+    - master
+    - auto
+    - /.+-dev$/
+    - /.+-stable$/
 
 notifications:
-  email:
-    - travis-ci@andrearko.com
-    - hone02@gmail.com
+  slack:
+    on_success: change
+    on_failure: always
+    rooms:
+      - secure: JxBi7DDJGkIF/7f/FSN/HUHpvV4EKfQccZHTPd1b2pNJn3GXo6u+tNVbAw2WjxYzPyPQI3ZcYBCU9SEXp/i7VmG8uMzh8Kyildw+miSKYKVb90uYqcsXWzbxwyNBgJLvyDkzST45H5lgnyAicee3WkFes/WDZikIajbH7ztdb04=
+
+addons:
+  code_climate:
+    repo_token:
+      secure: "TrzIv116JLGUxm6PAUskCYrv8KTDguncKROVwbnjVPKTGDAgoDderd8JUdDEXrKoZ9qGLD2TPYKExt9/QDl71E+qHdWnVqWv4HKCUk2P9z/VLKzHuggOUBkCXiJUhjywUieCJhI3N92bfq2EjSBbu2/OFHqWOjLQ+QCooTEBjv8="
+
+rvm:
+  - 2.4.1
+  - 2.3.4
+
+# Rubygems versions MUST be available as rake tasks
+# see Rakefile:125 for the list of possible RGV values
+env:
+  # We need to know if changes to rubygems will break bundler on release
+  - RGV=master
+  # Test the latest rubygems release with all of our supported rubies
+  - RGV=v2.6.13
+
+matrix:
+  include:
+    # Ruby 2.4, Rubygems 2.6.8 and up
+    # Ruby 2.3, Rubygems 2.5.1 and up
+    - rvm: 2.3.4
+      env: RGV=v2.5.2
+    # Ruby-head (we want to know how we're doing, but not fail the build)
+    - rvm: ruby-head
+      env: RGV=master
+    # 1.x mode (we want to keep stuff passing in 1.x mode for now)
+    - rvm: 2.4.1
+      env: RGV=v2.6.13 BUNDLER_SPEC_SUB_VERSION=1.98
+    - rvm: 1.8.7
+      env: RGV=v2.6.13 BUNDLER_SPEC_SUB_VERSION=1.98
+
+  allow_failures:
+    - rvm: ruby-head
+      env: RGV=master
