@@ -73,6 +73,7 @@ module Bundler
     ].freeze
 
     DEFAULT_CONFIG = {
+      :disable_version_check => true,
       :redirect => 5,
       :retry => 3,
       :timeout => 10,
@@ -392,7 +393,7 @@ module Bundler
         Pathname.new(ENV["BUNDLE_CONFIG"])
       else
         begin
-          Bundler.user_bundle_path.join("config")
+          Bundler.user_bundle_path("config")
         rescue PermissionError, GenericSystemCallError
           nil
         end
