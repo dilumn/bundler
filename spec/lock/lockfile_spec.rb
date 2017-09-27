@@ -1,8 +1,9 @@
 # frozen_string_literal: true
-require "spec_helper"
 
-describe "the lockfile format" do
+RSpec.describe "the lockfile format", :bundler => "2" do
   include Bundler::GemHelpers
+
+  before { ENV["BUNDLER_SPEC_IGNORE_COMPATIBILITY_GUARD"] = "TRUE" }
 
   it "generates a simple lockfile for a single source, gem" do
     install_gemfile <<-G
@@ -18,7 +19,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
@@ -41,7 +42,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         omg!
@@ -64,7 +65,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
@@ -75,6 +76,8 @@ describe "the lockfile format" do
   end
 
   it "does not update the lockfile's bundler version if nothing changed during bundle install" do
+    version = "#{Bundler::VERSION.split(".").first}.0.0.0.a"
+
     lockfile <<-L
       GEM
         remote: file:#{gem_repo1}/
@@ -82,13 +85,13 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
 
       BUNDLED WITH
-         1.10.0
+         #{version}
     L
 
     install_gemfile <<-G
@@ -104,13 +107,13 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
 
       BUNDLED WITH
-         1.10.0
+         #{version}
     G
   end
 
@@ -122,7 +125,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
@@ -141,7 +144,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack (> 0)
@@ -176,9 +179,9 @@ describe "the lockfile format" do
       G
     end
 
-    warning_message = "Warning: the running version of Bundler is " \
-                           "older than the version that created the lockfile"
-    expect(out.scan(warning_message).size).to eq(1)
+    warning_message = "the running version of Bundler (9999999.0.0) is older " \
+                      "than the version that created the lockfile (9999999.1.0)"
+    expect(last_command.bundler_err).to include warning_message
 
     lockfile_should_be <<-G
       GEM
@@ -187,7 +190,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
@@ -205,7 +208,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
@@ -220,8 +223,8 @@ describe "the lockfile format" do
       gem "rack"
     G
 
-    expect(exitstatus > 0) if exitstatus
-    expect(out).to include("You must use Bundler 9999999 or greater with this lockfile.")
+    expect(last_command).to be_failure
+    expect(last_command.bundler_err).to include("You must use Bundler 9999999 or greater with this lockfile.")
   end
 
   it "shows a friendly error when running with a new bundler 2 lockfile" do
@@ -258,7 +261,7 @@ describe "the lockfile format" do
       end
     G
 
-    expect(exitstatus > 0) if exitstatus
+    expect(last_command).to be_failure
     expect(out).to include("You must use Bundler 9999999 or greater with this lockfile.")
   end
 
@@ -297,7 +300,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
@@ -323,7 +326,7 @@ describe "the lockfile format" do
             rack
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack-obama
@@ -349,7 +352,7 @@ describe "the lockfile format" do
             rack
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack-obama (>= 1.0)
@@ -359,19 +362,28 @@ describe "the lockfile format" do
     G
   end
 
-  it "generates a lockfile wihout credentials for a configured source" do
+  it "generates a lockfile without credentials for a configured source" do
     bundle "config http://localgemserver.test/ user:pass"
 
     install_gemfile(<<-G, :artifice => "endpoint_strict_basic_authentication", :quiet => true)
-      source "http://localgemserver.test/"
-      source "http://user:pass@othergemserver.test/"
+      source "http://localgemserver.test/" do
 
-      gem "rack-obama", ">= 1.0"
+      end
+
+      source "http://user:pass@othergemserver.test/" do
+        gem "rack-obama", ">= 1.0"
+      end
     G
 
     lockfile_should_be <<-G
       GEM
+        specs:
+
+      GEM
         remote: http://localgemserver.test/
+        specs:
+
+      GEM
         remote: http://user:pass@othergemserver.test/
         specs:
           rack (1.0.0)
@@ -379,10 +391,10 @@ describe "the lockfile format" do
             rack
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
-        rack-obama (>= 1.0)
+        rack-obama (>= 1.0)!
 
       BUNDLED WITH
          #{Bundler::VERSION}
@@ -404,7 +416,7 @@ describe "the lockfile format" do
           net-ssh (1.0)
 
       PLATFORMS
-        ruby
+        #{lockfile_platforms}
 
       DEPENDENCIES
         net-sftp
@@ -413,10 +425,10 @@ describe "the lockfile format" do
          #{Bundler::VERSION}
     G
 
-    should_be_installed "net-sftp 1.1.1", "net-ssh 1.0.0"
+    expect(the_bundle).to include_gems "net-sftp 1.1.1", "net-ssh 1.0.0"
   end
 
-  it "generates a simple lockfile for a single pinned source, gem with a version requirement" do
+  it "generates a simple lockfile for a single pinned source, gem with a version requirement", :bundler => "< 2" do
     git = build_git "foo"
 
     install_gemfile <<-G
@@ -434,7 +446,35 @@ describe "the lockfile format" do
         specs:
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
+
+      DEPENDENCIES
+        foo!
+
+      BUNDLED WITH
+         #{Bundler::VERSION}
+    G
+  end
+
+  it "generates a simple lockfile for a single pinned source, gem with a version requirement" do
+    git = build_git "foo"
+
+    install_gemfile <<-G
+      gem "foo", :git => "#{lib_path("foo-1.0")}"
+    G
+
+    lockfile_should_be <<-G
+      GEM
+        specs:
+
+      GIT
+        remote: #{lib_path("foo-1.0")}
+        revision: #{git.ref_for("master")}
+        specs:
+          foo (1.0)
+
+      PLATFORMS
+        #{lockfile_platforms}
 
       DEPENDENCIES
         foo!
@@ -479,8 +519,8 @@ describe "the lockfile format" do
          #{Bundler::VERSION}
     L
 
-    bundle "install"
-    should_be_installed "rack 1.0.0"
+    bundle! "install"
+    expect(the_bundle).to include_gems "rack 1.0.0"
   end
 
   it "serializes global git sources" do
@@ -493,17 +533,17 @@ describe "the lockfile format" do
     G
 
     lockfile_should_be <<-G
+      GEM
+        specs:
+
       GIT
         remote: #{lib_path("foo-1.0")}
         revision: #{git.ref_for("master")}
         specs:
           foo (1.0)
 
-      GEM
-        specs:
-
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         foo!
@@ -522,6 +562,9 @@ describe "the lockfile format" do
     G
 
     lockfile_should_be <<-G
+      GEM
+        specs:
+
       GIT
         remote: #{lib_path("foo-1.0")}
         revision: #{git.ref_for("omg")}
@@ -529,11 +572,8 @@ describe "the lockfile format" do
         specs:
           foo (1.0)
 
-      GEM
-        specs:
-
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         foo!
@@ -552,6 +592,9 @@ describe "the lockfile format" do
     G
 
     lockfile_should_be <<-G
+      GEM
+        specs:
+
       GIT
         remote: #{lib_path("foo-1.0")}
         revision: #{git.ref_for("omg")}
@@ -559,11 +602,8 @@ describe "the lockfile format" do
         specs:
           foo (1.0)
 
-      GEM
-        specs:
-
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         foo!
@@ -581,16 +621,46 @@ describe "the lockfile format" do
     G
 
     lockfile_should_be <<-G
+      GEM
+        specs:
+
       PATH
         remote: #{lib_path("foo-1.0")}
         specs:
           foo (1.0)
 
+      PLATFORMS
+        #{lockfile_platforms}
+
+      DEPENDENCIES
+        foo!
+
+      BUNDLED WITH
+         #{Bundler::VERSION}
+    G
+  end
+
+  it "serializes pinned path sources to the lockfile even when packaging" do
+    build_lib "foo"
+
+    install_gemfile! <<-G
+      gem "foo", :path => "#{lib_path("foo-1.0")}"
+    G
+
+    bundle! :package, forgotten_command_line_options([:all, :cache_all] => true)
+    bundle! :install, :local => true
+
+    lockfile_should_be <<-G
       GEM
         specs:
 
+      PATH
+        remote: #{lib_path("foo-1.0")}
+        specs:
+          foo (1.0)
+
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         foo!
@@ -613,6 +683,11 @@ describe "the lockfile format" do
     G
 
     lockfile_should_be <<-G
+      GEM
+        remote: file:#{gem_repo1}/
+        specs:
+          rack (1.0.0)
+
       GIT
         remote: #{lib_path("bar-1.0")}
         revision: #{bar.ref_for("master")}
@@ -624,13 +699,8 @@ describe "the lockfile format" do
         specs:
           foo (1.0)
 
-      GEM
-        remote: file:#{gem_repo1}/
-        specs:
-          rack (1.0.0)
-
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         bar!
@@ -665,7 +735,7 @@ describe "the lockfile format" do
             rack
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         actionpack
@@ -706,7 +776,7 @@ describe "the lockfile format" do
           rake (10.0.2)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rails
@@ -732,7 +802,7 @@ describe "the lockfile format" do
           net-ssh (1.0)
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         double_deps
@@ -758,7 +828,7 @@ describe "the lockfile format" do
             rack
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack-obama (>= 1.0)
@@ -784,7 +854,7 @@ describe "the lockfile format" do
             rack
 
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack-obama (>= 1.0)
@@ -798,24 +868,25 @@ describe "the lockfile format" do
     build_lib "foo", :path => bundled_app("foo")
 
     install_gemfile <<-G
-      path "foo"
-      gem "foo"
+      path "foo" do
+        gem "foo"
+      end
     G
 
     lockfile_should_be <<-G
+      GEM
+        specs:
+
       PATH
         remote: foo
         specs:
           foo (1.0)
 
-      GEM
-        specs:
-
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
-        foo
+        foo!
 
       BUNDLED WITH
          #{Bundler::VERSION}
@@ -826,24 +897,25 @@ describe "the lockfile format" do
     build_lib "foo", :path => bundled_app(File.join("..", "foo"))
 
     install_gemfile <<-G
-      path "../foo"
-      gem "foo"
+      path "../foo" do
+        gem "foo"
+      end
     G
 
     lockfile_should_be <<-G
+      GEM
+        specs:
+
       PATH
         remote: ../foo
         specs:
           foo (1.0)
 
-      GEM
-        specs:
-
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
-        foo
+        foo!
 
       BUNDLED WITH
          #{Bundler::VERSION}
@@ -854,24 +926,25 @@ describe "the lockfile format" do
     build_lib "foo", :path => bundled_app("foo")
 
     install_gemfile <<-G
-      path File.expand_path("../foo", __FILE__)
-      gem "foo"
+      path File.expand_path("../foo", __FILE__) do
+        gem "foo"
+      end
     G
 
     lockfile_should_be <<-G
+      GEM
+        specs:
+
       PATH
         remote: foo
         specs:
           foo (1.0)
 
-      GEM
-        specs:
-
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
-        foo
+        foo!
 
       BUNDLED WITH
          #{Bundler::VERSION}
@@ -886,16 +959,16 @@ describe "the lockfile format" do
     G
 
     lockfile_should_be <<-G
+      GEM
+        specs:
+
       PATH
         remote: ../foo
         specs:
           foo (1.0)
 
-      GEM
-        specs:
-
       PLATFORMS
-        #{generic_local_platform}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         foo!
@@ -928,8 +1001,6 @@ describe "the lockfile format" do
       gem "rack"
     G
 
-    platforms = ["java", generic_local_platform.to_s].sort
-
     lockfile_should_be <<-G
       GEM
         remote: file:#{gem_repo1}/
@@ -937,8 +1008,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        #{platforms[0]}
-        #{platforms[1]}
+        #{lockfile_platforms "java", generic_local_platform, specific_local_platform}
 
       DEPENDENCIES
         rack
@@ -949,25 +1019,29 @@ describe "the lockfile format" do
   end
 
   it "persists the spec's platform to the lockfile" do
-    build_gem "platform_specific", "1.0.0", :to_system => true do |s|
-      s.platform = Gem::Platform.new("universal-java-16")
+    build_repo2 do
+      build_gem "platform_specific", "1.0" do |s|
+        s.platform = Gem::Platform.new("universal-java-16")
+      end
     end
 
     simulate_platform "universal-java-16"
 
-    install_gemfile <<-G
-      source "file://#{gem_repo1}"
+    install_gemfile! <<-G
+      source "file://#{gem_repo2}"
       gem "platform_specific"
     G
 
     lockfile_should_be <<-G
       GEM
-        remote: file:#{gem_repo1}/
+        remote: file:#{gem_repo2}/
         specs:
           platform_specific (1.0-java)
+          platform_specific (1.0-universal-java-16)
 
       PLATFORMS
         java
+        universal-java-16
 
       DEPENDENCIES
         platform_specific
@@ -997,7 +1071,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        ruby
+        #{lockfile_platforms}
 
       DEPENDENCIES
         activesupport
@@ -1022,7 +1096,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        ruby
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
@@ -1046,7 +1120,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        ruby
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack (= 1.0)
@@ -1070,7 +1144,7 @@ describe "the lockfile format" do
           rack (1.0.0)
 
       PLATFORMS
-        ruby
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack (= 1.0)
@@ -1115,7 +1189,7 @@ describe "the lockfile format" do
           rack (0.9.1)
 
       PLATFORMS
-        ruby
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack (> 0.9, < 1.0)
@@ -1125,7 +1199,7 @@ describe "the lockfile format" do
     G
   end
 
-  it "captures the Ruby version in the lockfile", :focus do
+  it "captures the Ruby version in the lockfile" do
     install_gemfile <<-G
       source "file://#{gem_repo1}"
       ruby '#{RUBY_VERSION}'
@@ -1139,7 +1213,7 @@ describe "the lockfile format" do
           rack (0.9.1)
 
       PLATFORMS
-        ruby
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack (> 0.9, < 1.0)
@@ -1167,31 +1241,31 @@ describe "the lockfile format" do
       gem "omg", :git => "#{lib_path("omg")}", :branch => 'master'
     G
 
-    bundle "install --path vendor"
-    should_be_installed "omg 1.0"
+    bundle! :install, forgotten_command_line_options(:path => "vendor")
+    expect(the_bundle).to include_gems "omg 1.0"
 
     # Create a Gemfile.lock that has duplicate GIT sections
     lockfile <<-L
-      GIT
-        remote: #{lib_path("omg")}
-        revision: #{revision}
-        branch: master
-        specs:
-          omg (1.0)
-
-      GIT
-        remote: #{lib_path("omg")}
-        revision: #{revision}
-        branch: master
-        specs:
-          omg (1.0)
-
       GEM
         remote: file:#{gem_repo1}/
         specs:
 
+      GIT
+        remote: #{lib_path("omg")}
+        revision: #{revision}
+        branch: master
+        specs:
+          omg (1.0)
+
+      GIT
+        remote: #{lib_path("omg")}
+        revision: #{revision}
+        branch: master
+        specs:
+          omg (1.0)
+
       PLATFORMS
-        #{local}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         omg!
@@ -1202,10 +1276,14 @@ describe "the lockfile format" do
 
     FileUtils.rm_rf(bundled_app("vendor"))
     bundle "install"
-    should_be_installed "omg 1.0"
+    expect(the_bundle).to include_gems "omg 1.0"
 
     # Confirm that duplicate specs do not appear
     expect(File.read(bundled_app("Gemfile.lock"))).to eq(strip_whitespace(<<-L))
+      GEM
+        remote: file:#{gem_repo1}/
+        specs:
+
       GIT
         remote: #{lib_path("omg")}
         revision: #{revision}
@@ -1213,12 +1291,8 @@ describe "the lockfile format" do
         specs:
           omg (1.0)
 
-      GEM
-        remote: file:#{gem_repo1}/
-        specs:
-
       PLATFORMS
-        #{local}
+        #{lockfile_platforms}
 
       DEPENDENCIES
         omg!
@@ -1226,6 +1300,29 @@ describe "the lockfile format" do
       BUNDLED WITH
          #{Bundler::VERSION}
     L
+  end
+
+  it "raises a helpful error message when the lockfile is missing deps" do
+    lockfile <<-L
+      GEM
+        remote: file:#{gem_repo1}/
+        specs:
+          rack_middleware (1.0)
+
+      PLATFORMS
+        #{lockfile_platforms}
+
+      DEPENDENCIES
+        rack_middleware
+    L
+
+    install_gemfile <<-G
+      source "file:#{gem_repo1}"
+      gem "rack_middleware"
+    G
+
+    expect(out).to include("Downloading rack_middleware-1.0 revealed dependencies not in the API or the lockfile (#{Gem::Dependency.new("rack", "= 0.9.1")}).").
+      and include("Either installing with `--full-index` or running `bundle update rack_middleware` should fix the problem.")
   end
 
   describe "a line ending" do
@@ -1245,16 +1342,16 @@ describe "the lockfile format" do
 
     it "generates Gemfile.lock with \\n line endings" do
       expect(File.read(bundled_app("Gemfile.lock"))).not_to match("\r\n")
-      should_be_installed "rack 1.0"
+      expect(the_bundle).to include_gems "rack 1.0"
     end
 
     context "during updates" do
       it "preserves Gemfile.lock \\n line endings" do
         update_repo2
 
-        expect { bundle "update" }.to change { File.mtime(bundled_app("Gemfile.lock")) }
+        expect { bundle "update", :all => true }.to change { File.mtime(bundled_app("Gemfile.lock")) }
         expect(File.read(bundled_app("Gemfile.lock"))).not_to match("\r\n")
-        should_be_installed "rack 1.2"
+        expect(the_bundle).to include_gems "rack 1.2"
       end
 
       it "preserves Gemfile.lock \\n\\r line endings" do
@@ -1263,9 +1360,9 @@ describe "the lockfile format" do
         File.open(bundled_app("Gemfile.lock"), "wb") {|f| f.puts(win_lock) }
         set_lockfile_mtime_to_known_value
 
-        expect { bundle "update" }.to change { File.mtime(bundled_app("Gemfile.lock")) }
+        expect { bundle "update", :all => true }.to change { File.mtime(bundled_app("Gemfile.lock")) }
         expect(File.read(bundled_app("Gemfile.lock"))).to match("\r\n")
-        should_be_installed "rack 1.2"
+        expect(the_bundle).to include_gems "rack 1.2"
       end
     end
 
@@ -1308,7 +1405,7 @@ describe "the lockfile format" do
       >>>>>>>
 
       PLATFORMS
-        ruby
+        #{lockfile_platforms}
 
       DEPENDENCIES
         rack
@@ -1317,12 +1414,12 @@ describe "the lockfile format" do
          #{Bundler::VERSION}
     L
 
-    error = install_gemfile(<<-G, :expect_err => true)
+    install_gemfile(<<-G)
       source "file://#{gem_repo1}"
       gem "rack"
     G
 
-    expect(error).to match(/your Gemfile.lock contains merge conflicts/i)
-    expect(error).to match(/git checkout HEAD -- Gemfile.lock/i)
+    expect(last_command.bundler_err).to match(/your Gemfile.lock contains merge conflicts/i)
+    expect(last_command.bundler_err).to match(/git checkout HEAD -- Gemfile.lock/i)
   end
 end

@@ -1,7 +1,6 @@
 # frozen_string_literal: true
-require "spec_helper"
 
-describe "bundle install with groups" do
+RSpec.describe "bundle install with groups" do
   describe "installing with no options" do
     before :each do
       install_gemfile <<-G
@@ -15,29 +14,29 @@ describe "bundle install with groups" do
     end
 
     it "installs gems in the default group" do
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
 
     it "installs gems in a group block into that group" do
-      should_be_installed "activesupport 2.3.5"
+      expect(the_bundle).to include_gems "activesupport 2.3.5"
 
       load_error_run <<-R, "activesupport", :default
         require 'activesupport'
         puts ACTIVESUPPORT
       R
 
-      expect(err).to eq("ZOMG LOAD ERROR")
+      expect(err).to eq_err("ZOMG LOAD ERROR")
     end
 
     it "installs gems with inline :groups into those groups" do
-      should_be_installed "thin 1.0"
+      expect(the_bundle).to include_gems "thin 1.0"
 
       load_error_run <<-R, "thin", :default
         require 'thin'
         puts THIN
       R
 
-      expect(err).to eq("ZOMG LOAD ERROR")
+      expect(err).to eq_err("ZOMG LOAD ERROR")
     end
 
     it "sets up everything if Bundler.setup is used with no groups" do
@@ -58,7 +57,7 @@ describe "bundle install with groups" do
         puts THIN
       RUBY
 
-      expect(err).to eq("ZOMG LOAD ERROR")
+      expect(err).to eq_err("ZOMG LOAD ERROR")
     end
 
     it "sets up old groups when they have previously been removed" do
@@ -87,30 +86,30 @@ describe "bundle install with groups" do
       end
 
       it "installs gems in the default group" do
-        bundle :install, :without => "emo"
-        should_be_installed "rack 1.0.0", :groups => [:default]
+        bundle! :install, forgotten_command_line_options(:without => "emo")
+        expect(the_bundle).to include_gems "rack 1.0.0", :groups => [:default]
       end
 
       it "does not install gems from the excluded group" do
         bundle :install, :without => "emo"
-        should_not_be_installed "activesupport 2.3.5", :groups => [:default]
+        expect(the_bundle).not_to include_gems "activesupport 2.3.5", :groups => [:default]
       end
 
       it "does not install gems from the previously excluded group" do
-        bundle :install, :without => "emo"
-        should_not_be_installed "activesupport 2.3.5"
+        bundle :install, forgotten_command_line_options(:without => "emo")
+        expect(the_bundle).not_to include_gems "activesupport 2.3.5"
         bundle :install
-        should_not_be_installed "activesupport 2.3.5"
+        expect(the_bundle).not_to include_gems "activesupport 2.3.5"
       end
 
       it "does not say it installed gems from the excluded group" do
-        bundle :install, :without => "emo"
+        bundle! :install, forgotten_command_line_options(:without => "emo")
         expect(out).not_to include("activesupport")
       end
 
       it "allows Bundler.setup for specific groups" do
-        bundle :install, :without => "emo"
-        run("require 'rack'; puts RACK", :default)
+        bundle :install, forgotten_command_line_options(:without => "emo")
+        run!("require 'rack'; puts RACK", :default)
         expect(out).to eq("1.0.0")
       end
 
@@ -123,18 +122,18 @@ describe "bundle install with groups" do
           end
         G
 
-        bundle :install, :without => "emo"
-        should_be_installed "activesupport 2.3.2", :groups => [:default]
+        bundle :install, forgotten_command_line_options(:without => "emo")
+        expect(the_bundle).to include_gems "activesupport 2.3.2", :groups => [:default]
       end
 
       it "still works on a different machine and excludes gems" do
-        bundle :install, :without => "emo"
+        bundle :install, forgotten_command_line_options(:without => "emo")
 
         simulate_new_machine
-        bundle :install, :without => "emo"
+        bundle :install, forgotten_command_line_options(:without => "emo")
 
-        should_be_installed "rack 1.0.0", :groups => [:default]
-        should_not_be_installed "activesupport 2.3.5", :groups => [:default]
+        expect(the_bundle).to include_gems "rack 1.0.0", :groups => [:default]
+        expect(the_bundle).not_to include_gems "activesupport 2.3.5", :groups => [:default]
       end
 
       it "still works when BUNDLE_WITHOUT is set" do
@@ -143,87 +142,101 @@ describe "bundle install with groups" do
         bundle :install
         expect(out).not_to include("activesupport")
 
-        should_be_installed "rack 1.0.0", :groups => [:default]
-        should_not_be_installed "activesupport 2.3.5", :groups => [:default]
+        expect(the_bundle).to include_gems "rack 1.0.0", :groups => [:default]
+        expect(the_bundle).not_to include_gems "activesupport 2.3.5", :groups => [:default]
 
         ENV["BUNDLE_WITHOUT"] = nil
       end
 
       it "clears without when passed an empty list" do
-        bundle :install, :without => "emo"
+        bundle :install, forgotten_command_line_options(:without => "emo")
 
-        bundle 'install --without ""'
-        should_be_installed "activesupport 2.3.5"
+        bundle :install, forgotten_command_line_options(:without => "")
+        expect(the_bundle).to include_gems "activesupport 2.3.5"
       end
 
       it "doesn't clear without when nothing is passed" do
-        bundle :install, :without => "emo"
+        bundle :install, forgotten_command_line_options(:without => "emo")
 
         bundle :install
-        should_not_be_installed "activesupport 2.3.5"
+        expect(the_bundle).not_to include_gems "activesupport 2.3.5"
       end
 
       it "does not install gems from the optional group" do
         bundle :install
-        should_not_be_installed "thin 1.0"
+        expect(the_bundle).not_to include_gems "thin 1.0"
       end
 
       it "does install gems from the optional group when requested" do
-        bundle :install, :with => "debugging"
-        should_be_installed "thin 1.0"
+        bundle :install, forgotten_command_line_options(:with => "debugging")
+        expect(the_bundle).to include_gems "thin 1.0"
       end
 
       it "does install gems from the previously requested group" do
-        bundle :install, :with => "debugging"
-        should_be_installed "thin 1.0"
+        bundle :install, forgotten_command_line_options(:with => "debugging")
+        expect(the_bundle).to include_gems "thin 1.0"
         bundle :install
-        should_be_installed "thin 1.0"
+        expect(the_bundle).to include_gems "thin 1.0"
       end
 
       it "does install gems from the optional groups requested with BUNDLE_WITH" do
         ENV["BUNDLE_WITH"] = "debugging"
         bundle :install
-        should_be_installed "thin 1.0"
+        expect(the_bundle).to include_gems "thin 1.0"
         ENV["BUNDLE_WITH"] = nil
       end
 
       it "clears with when passed an empty list" do
-        bundle :install, :with => "debugging"
-        bundle 'install --with ""'
-        should_not_be_installed "thin 1.0"
+        bundle :install, forgotten_command_line_options(:with => "debugging")
+        bundle :install, forgotten_command_line_options(:with => "")
+        expect(the_bundle).not_to include_gems "thin 1.0"
       end
 
-      it "does remove groups from without when passed at with" do
-        bundle :install, :without => "emo"
-        bundle :install, :with => "emo"
-        should_be_installed "activesupport 2.3.5"
+      it "does remove groups from without when passed at --with", :bundler => "< 2" do
+        bundle :install, forgotten_command_line_options(:without => "emo")
+        bundle :install, forgotten_command_line_options(:with => "emo")
+        expect(the_bundle).to include_gems "activesupport 2.3.5"
       end
 
-      it "does remove groups from with when passed at without" do
-        bundle :install, :with => "debugging"
-        bundle :install, :without => "debugging"
-        should_not_be_installed "thin 1.0"
+      it "does remove groups from with when passed at --without", :bundler => "< 2" do
+        bundle :install, forgotten_command_line_options(:with => "debugging")
+        bundle :install, forgotten_command_line_options(:without => "debugging")
+        expect(the_bundle).not_to include_gem "thin 1.0"
       end
 
-      it "errors out when passing a group to with and without" do
-        bundle :install, :with => "emo debugging", :without => "emo"
+      it "errors out when passing a group to with and without via CLI flags", :bundler => "< 2" do
+        bundle :install, forgotten_command_line_options(:with => "emo debugging", :without => "emo")
+        expect(last_command).to be_failure
         expect(out).to include("The offending groups are: emo")
       end
 
+      it "allows the BUNDLE_WITH setting to override BUNDLE_WITHOUT" do
+        ENV["BUNDLE_WITH"] = "debugging"
+
+        bundle! :install
+        expect(the_bundle).to include_gem "thin 1.0"
+
+        ENV["BUNDLE_WITHOUT"] = "debugging"
+        expect(the_bundle).to include_gem "thin 1.0"
+
+        bundle! :install
+        expect(the_bundle).to include_gem "thin 1.0"
+      end
+
       it "can add and remove a group at the same time" do
-        bundle :install, :with => "debugging", :without => "emo"
-        should_be_installed "thin 1.0"
-        should_not_be_installed "activesupport 2.3.5"
+        bundle :install, forgotten_command_line_options(:with => "debugging", :without => "emo")
+        expect(the_bundle).to include_gems "thin 1.0"
+        expect(the_bundle).not_to include_gems "activesupport 2.3.5"
       end
 
       it "does have no effect when listing a not optional group in with" do
-        bundle :install, :with => "emo"
-        should_be_installed "activesupport 2.3.5"
+        bundle :install, forgotten_command_line_options(:with => "emo")
+        expect(the_bundle).to include_gems "activesupport 2.3.5"
       end
 
       it "does have no effect when listing an optional group in without" do
-        bundle :install, :without => "debugging"
-        should_not_be_installed "thin 1.0"
+        bundle :install, forgotten_command_line_options(:without => "debugging")
+        expect(the_bundle).not_to include_gems "thin 1.0"
       end
     end
 
@@ -239,13 +252,13 @@ describe "bundle install with groups" do
       end
 
       it "installs gems in the default group" do
-        bundle :install, :without => "emo lolercoaster"
-        should_be_installed "rack 1.0.0"
+        bundle! :install, forgotten_command_line_options(:without => "emo lolercoaster")
+        expect(the_bundle).to include_gems "rack 1.0.0"
       end
 
       it "installs the gem if any of its groups are installed" do
-        bundle "install --without emo"
-        should_be_installed "rack 1.0.0", "activesupport 2.3.5"
+        bundle! :install, forgotten_command_line_options(:without => "emo")
+        expect(the_bundle).to include_gems "rack 1.0.0", "activesupport 2.3.5"
       end
 
       describe "with a gem defined multiple times in different groups" do
@@ -265,23 +278,23 @@ describe "bundle install with groups" do
         end
 
         it "installs the gem w/ option --without emo" do
-          bundle "install --without emo"
-          should_be_installed "activesupport 2.3.5"
+          bundle :install, forgotten_command_line_options(:without => "emo")
+          expect(the_bundle).to include_gems "activesupport 2.3.5"
         end
 
         it "installs the gem w/ option --without lolercoaster" do
-          bundle "install --without lolercoaster"
-          should_be_installed "activesupport 2.3.5"
+          bundle :install, forgotten_command_line_options(:without => "lolercoaster")
+          expect(the_bundle).to include_gems "activesupport 2.3.5"
         end
 
         it "does not install the gem w/ option --without emo lolercoaster" do
-          bundle "install --without emo lolercoaster"
-          should_not_be_installed "activesupport 2.3.5"
+          bundle :install, forgotten_command_line_options(:without => "emo lolercoaster")
+          expect(the_bundle).not_to include_gems "activesupport 2.3.5"
         end
 
         it "does not install the gem w/ option --without 'emo lolercoaster'" do
-          bundle "install --without 'emo lolercoaster'"
-          should_not_be_installed "activesupport 2.3.5"
+          bundle :install, forgotten_command_line_options(:without => "'emo lolercoaster'")
+          expect(the_bundle).not_to include_gems "activesupport 2.3.5"
         end
       end
     end
@@ -300,13 +313,13 @@ describe "bundle install with groups" do
       end
 
       it "installs gems in the default group" do
-        bundle :install, :without => "emo lolercoaster"
-        should_be_installed "rack 1.0.0"
+        bundle! :install, forgotten_command_line_options(:without => "emo lolercoaster")
+        expect(the_bundle).to include_gems "rack 1.0.0"
       end
 
       it "installs the gem if any of its groups are installed" do
-        bundle "install --without emo"
-        should_be_installed "rack 1.0.0", "activesupport 2.3.5"
+        bundle! :install, forgotten_command_line_options(:without => "emo")
+        expect(the_bundle).to include_gems "rack 1.0.0", "activesupport 2.3.5"
       end
     end
   end
@@ -340,7 +353,7 @@ describe "bundle install with groups" do
     before(:each) do
       build_repo2
       system_gems "rack-0.9.1" do
-        install_gemfile <<-G, :without => :rack
+        install_gemfile <<-G, forgotten_command_line_options(:without => "rack")
           source "file://#{gem_repo2}"
           gem "rack"
 
@@ -352,20 +365,20 @@ describe "bundle install with groups" do
     end
 
     it "uses the correct versions even if --without was used on the original" do
-      should_be_installed "rack 0.9.1"
-      should_not_be_installed "rack_middleware 1.0"
+      expect(the_bundle).to include_gems "rack 0.9.1"
+      expect(the_bundle).not_to include_gems "rack_middleware 1.0"
       simulate_new_machine
 
       bundle :install
 
-      should_be_installed "rack 0.9.1"
-      should_be_installed "rack_middleware 1.0"
+      expect(the_bundle).to include_gems "rack 0.9.1"
+      expect(the_bundle).to include_gems "rack_middleware 1.0"
     end
 
     it "does not hit the remote a second time" do
       FileUtils.rm_rf gem_repo2
-      bundle "install --without rack"
-      expect(err).to be_empty
+      bundle! :install, forgotten_command_line_options(:without => "rack").merge(:verbose => true)
+      expect(last_command.stdboth).not_to match(/fetching/i)
     end
   end
 end

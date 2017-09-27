@@ -1,7 +1,6 @@
 # frozen_string_literal: true
-require "spec_helper"
 
-describe ".bundle/config" do
+RSpec.describe ".bundle/config" do
   before :each do
     gemfile <<-G
       source "file://#{gem_repo1}"
@@ -9,14 +8,48 @@ describe ".bundle/config" do
     G
   end
 
+  describe "config" do
+    before { bundle "config foo bar" }
+
+    it "prints a detailed report of local and user configuration" do
+      bundle "config"
+
+      expect(out).to include("Settings are listed in order of priority. The top value will be used")
+      expect(out).to include("foo\nSet for the current user")
+      expect(out).to include(": \"bar\"")
+    end
+
+    context "given --parseable flag" do
+      it "prints a minimal report of local and user configuration" do
+        bundle "config --parseable"
+        expect(out).to include("foo=bar")
+      end
+
+      context "with global config" do
+        it "prints config assigned to local scope" do
+          bundle "config --local foo bar2"
+          bundle "config --parseable"
+          expect(out).to include("foo=bar2")
+        end
+      end
+
+      context "with env overwrite" do
+        it "prints config with env" do
+          bundle "config --parseable", :env => { "BUNDLE_FOO" => "bar3" }
+          expect(out).to include("foo=bar3")
+        end
+      end
+    end
+  end
+
   describe "BUNDLE_APP_CONFIG" do
     it "can be moved with an environment variable" do
       ENV["BUNDLE_APP_CONFIG"] = tmp("foo/bar").to_s
-      bundle "install --path vendor/bundle"
+      bundle "install", forgotten_command_line_options(:path => "vendor/bundle")
 
       expect(bundled_app(".bundle")).not_to exist
       expect(tmp("foo/bar/config")).to exist
-      should_be_installed "rack 1.0.0"
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
 
     it "can provide a relative path with the environment variable" do
@@ -24,20 +57,11 @@ describe ".bundle/config" do
       Dir.chdir bundled_app("omg")
 
       ENV["BUNDLE_APP_CONFIG"] = "../foo"
-      bundle "install --path vendor/bundle"
+      bundle "install", forgotten_command_line_options(:path => "vendor/bundle")
 
       expect(bundled_app(".bundle")).not_to exist
       expect(bundled_app("../foo/config")).to exist
-      should_be_installed "rack 1.0.0"
-    end
-
-    it "removes environment.rb from BUNDLE_APP_CONFIG's path" do
-      FileUtils.mkdir_p(tmp("foo/bar"))
-      ENV["BUNDLE_APP_CONFIG"] = tmp("foo/bar").to_s
-      bundle "install"
-      FileUtils.touch tmp("foo/bar/environment.rb")
-      should_be_installed "rack 1.0.0"
-      expect(tmp("foo/bar/environment.rb")).not_to exist
+      expect(the_bundle).to include_gems "rack 1.0.0"
     end
   end
 
@@ -111,6 +135,23 @@ describe ".bundle/config" do
       run "puts Bundler.settings['local.foo']"
       expect(out).to eq(File.expand_path(Dir.pwd + "/.."))
     end
+
+    it "saves with parseable option" do
+      bundle "config --global --parseable foo value"
+      expect(out).to eq("foo=value")
+      run "puts Bundler.settings['foo']"
+      expect(out).to eq("value")
+    end
+
+    context "when replacing a current value with the parseable flag" do
+      before { bundle "config --global foo value" }
+      it "prints the current value in a parseable format" do
+        bundle "config --global --parseable foo value2"
+        expect(out).to eq "foo=value2"
+        run "puts Bundler.settings['foo']"
+        expect(out).to eq("value2")
+      end
+    end
   end
 
   describe "local" do
@@ -156,6 +197,14 @@ describe ".bundle/config" do
       run "puts Bundler.settings['local.foo']"
       expect(out).to eq(File.expand_path(Dir.pwd + "/.."))
     end
+
+    it "can be deleted with parseable option" do
+      bundle "config --local foo value"
+      bundle "config --delete --parseable foo"
+      expect(out).to eq ""
+      run "puts Bundler.settings['foo'] == nil"
+      expect(out).to eq("true")
+    end
   end
 
   describe "env" do
@@ -196,6 +245,36 @@ describe ".bundle/config" do
     end
   end
 
+  describe "parseable option" do
+    it "prints an empty string" do
+      bundle "config foo --parseable"
+
+      expect(out).to eq ""
+    end
+
+    it "only prints the value of the config" do
+      bundle "config foo local"
+      bundle "config foo --parseable"
+
+      expect(out).to eq "foo=local"
+    end
+
+    it "can print global config" do
+      bundle "config --global bar value"
+      bundle "config bar --parseable"
+
+      expect(out).to eq "bar=value"
+    end
+
+    it "prefers local config over global" do
+      bundle "config --local bar value2"
+      bundle "config --global bar value"
+      bundle "config bar --parseable"
+
+      expect(out).to eq "bar=value2"
+    end
+  end
+
   describe "gem mirrors" do
     before(:each) { bundle :install }
 
@@ -226,7 +305,7 @@ E
     it "doesn't return quotes around values", :ruby => "1.9" do
       bundle "config foo '1'"
       run "puts Bundler.settings.send(:global_config_file).read"
-      expect(out).to include("'1'")
+      expect(out).to include('"1"')
       run "puts Bundler.settings[:foo]"
       expect(out).to eq("1")
     end
@@ -283,9 +362,95 @@ E
       expect(out).to match(long_string_without_special_characters)
     end
   end
+
+  describe "subcommands" do
+    it "list" do
+      bundle! "config list"
+      expect(last_command.stdout).to eq "Settings are listed in order of priority. The top value will be used.\nspec_run\nSet via BUNDLE_SPEC_RUN: \"true\""
+
+      bundle! "config list", :parseable => true
+      expect(last_command.stdout).to eq "spec_run=true"
+    end
+
+    it "get" do
+      ENV["BUNDLE_BAR"] = "bar_val"
+
+      bundle! "config get foo"
+      expect(last_command.stdout).to eq "Settings for `foo` in order of priority. The top value will be used\nYou have not configured a value for `foo`"
+
+      ENV["BUNDLE_FOO"] = "foo_val"
+
+      bundle! "config get foo --parseable"
+      expect(last_command.stdout).to eq "foo=foo_val"
+
+      bundle! "config get foo"
+      expect(last_command.stdout).to eq "Settings for `foo` in order of priority. The top value will be used\nSet via BUNDLE_FOO: \"foo_val\""
+    end
+
+    it "set" do
+      bundle! "config set foo 1"
+      expect(last_command.stdout).to eq ""
+
+      bundle! "config set --local foo 2"
+      expect(last_command.stdout).to eq ""
+
+      bundle! "config set --global foo 3"
+      expect(last_command.stdout).to eq "Your application has set foo to \"2\". This will override the global value you are currently setting"
+
+      bundle! "config set --parseable --local foo 4"
+      expect(last_command.stdout).to eq "foo=4"
+
+      bundle! "config set --local foo 4.1"
+      expect(last_command.stdout).to eq "You are replacing the current local value of foo, which is currently \"4\""
+
+      bundle "config set --global --local foo 5"
+      expect(last_command).to be_failure
+      expect(last_command.bundler_err).to eq "The options global and local were specified. Please only use one of the switches at a time."
+    end
+
+    it "unset" do
+      bundle! "config unset foo"
+      expect(last_command.stdout).to eq ""
+
+      bundle! "config set foo 1"
+      bundle! "config unset foo --parseable"
+      expect(last_command.stdout).to eq ""
+
+      bundle! "config set --local foo 1"
+      bundle! "config set --global foo 2"
+
+      bundle! "config unset foo"
+      expect(last_command.stdout).to eq ""
+      expect(bundle!("config get foo")).to eq "Settings for `foo` in order of priority. The top value will be used\nYou have not configured a value for `foo`"
+
+      bundle! "config set --local foo 1"
+      bundle! "config set --global foo 2"
+
+      bundle! "config unset foo --local"
+      expect(last_command.stdout).to eq ""
+      expect(bundle!("config get foo")).to eq "Settings for `foo` in order of priority. The top value will be used\nSet for the current user (#{home(".bundle/config")}): \"2\""
+      bundle! "config unset foo --global"
+      expect(last_command.stdout).to eq ""
+      expect(bundle!("config get foo")).to eq "Settings for `foo` in order of priority. The top value will be used\nYou have not configured a value for `foo`"
+
+      bundle! "config set --local foo 1"
+      bundle! "config set --global foo 2"
+
+      bundle! "config unset foo --global"
+      expect(last_command.stdout).to eq ""
+      expect(bundle!("config get foo")).to eq "Settings for `foo` in order of priority. The top value will be used\nSet for your local app (#{bundled_app(".bundle/config")}): \"1\""
+      bundle! "config unset foo --local"
+      expect(last_command.stdout).to eq ""
+      expect(bundle!("config get foo")).to eq "Settings for `foo` in order of priority. The top value will be used\nYou have not configured a value for `foo`"
+
+      bundle "config unset foo --local --global"
+      expect(last_command).to be_failure
+      expect(last_command.bundler_err).to eq "The options global and local were specified. Please only use one of the switches at a time."
+    end
+  end
 end
 
-describe "setting gemfile via config" do
+RSpec.describe "setting gemfile via config" do
   context "when only the non-default Gemfile exists" do
     it "persists the gemfile location to .bundle/config" do
       File.open(bundled_app("NotGemfile"), "w") do |f|

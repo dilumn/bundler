@@ -1,7 +1,6 @@
 # frozen_string_literal: true
-require "spec_helper"
 
-describe Bundler::SharedHelpers do
+RSpec.describe Bundler::SharedHelpers do
   let(:ext_lock_double) { double(:ext_lock) }
 
   before do
@@ -27,7 +26,18 @@ describe Bundler::SharedHelpers do
 
       it "raises a GemfileNotFound error" do
         expect { subject.default_gemfile }.to raise_error(
-          Bundler::GemfileNotFound, "Could not locate Gemfile")
+          Bundler::GemfileNotFound, "Could not locate Gemfile"
+        )
+      end
+    end
+
+    context "Gemfile is not an absolute path" do
+      before { ENV["BUNDLE_GEMFILE"] = "Gemfile" }
+
+      let(:expected_gemfile_path) { Pathname.new("Gemfile").expand_path }
+
+      it "returns the Gemfile path" do
+        expect(subject.default_gemfile).to eq(expected_gemfile_path)
       end
     end
   end
@@ -101,7 +111,7 @@ describe Bundler::SharedHelpers do
       context "currently in directory with a Gemfile" do
         before { File.new("Gemfile", "w") }
 
-        it "returns path of the bundle gemfile" do
+        it "returns path of the bundle Gemfile" do
           expect(subject.in_bundle?).to eq("#{bundled_app}/Gemfile")
         end
       end
@@ -209,6 +219,10 @@ describe Bundler::SharedHelpers do
   end
 
   describe "#set_bundle_environment" do
+    before do
+      ENV["BUNDLE_GEMFILE"] = "Gemfile"
+    end
+
     shared_examples_for "ENV['PATH'] gets set correctly" do
       before { Dir.mkdir ".bundle" }
 
@@ -222,14 +236,16 @@ describe Bundler::SharedHelpers do
     shared_examples_for "ENV['RUBYOPT'] gets set correctly" do
       it "ensures -rbundler/setup is at the beginning of ENV['RUBYOPT']" do
         subject.set_bundle_environment
-        expect(ENV["RUBYOPT"].split(" ").first).to include("-rbundler/setup")
+        expect(ENV["RUBYOPT"].split(" ")).to start_with("-rbundler/setup")
       end
     end
 
     shared_examples_for "ENV['RUBYLIB'] gets set correctly" do
       let(:ruby_lib_path) { "stubbed_ruby_lib_dir" }
 
-      before { allow(File).to receive(:expand_path).and_return(ruby_lib_path) }
+      before do
+        allow(Bundler::SharedHelpers).to receive(:bundler_ruby_lib).and_return(ruby_lib_path)
+      end
 
       it "ensures bundler's ruby version lib path is in ENV['RUBYLIB']" do
         subject.set_bundle_environment
@@ -243,6 +259,53 @@ describe Bundler::SharedHelpers do
       expect(subject).to receive(:set_rubyopt)
       expect(subject).to receive(:set_rubylib)
       subject.set_bundle_environment
+    end
+
+    it "exits if bundle path contains the unix-like path separator" do
+      if Gem.respond_to?(:path_separator)
+        allow(Gem).to receive(:path_separator).and_return(":")
+      else
+        stub_const("File::PATH_SEPARATOR", ":".freeze)
+      end
+      allow(Bundler).to receive(:bundle_path) { Pathname.new("so:me/dir/bin") }
+      expect { subject.send(:validate_bundle_path) }.to raise_error(
+        Bundler::PathError,
+        "Your bundle path contains text matching \":\", which is the " \
+        "path separator for your system. Bundler cannot " \
+        "function correctly when the Bundle path contains the " \
+        "system's PATH separator. Please change your " \
+        "bundle path to not match \":\".\nYour current bundle " \
+        "path is '#{Bundler.bundle_path}'."
+      )
+    end
+
+    context "with a jruby path_separator regex", :ruby => "1.9" do
+      # In versions of jruby that supported ruby 1.8, the path separator was the standard File::PATH_SEPARATOR
+      let(:regex) { Regexp.new("(?<!jar:file|jar|file|classpath|uri:classloader|uri|http|https):") }
+      it "does not exit if bundle path is the standard uri path" do
+        allow(Bundler.rubygems).to receive(:path_separator).and_return(regex)
+        allow(Bundler).to receive(:bundle_path) { Pathname.new("uri:classloader:/WEB-INF/gems") }
+        expect { subject.send(:validate_bundle_path) }.not_to raise_error
+      end
+
+      it "exits if bundle path contains another directory" do
+        allow(Bundler.rubygems).to receive(:path_separator).and_return(regex)
+        allow(Bundler).to receive(:bundle_path) {
+          Pathname.new("uri:classloader:/WEB-INF/gems:other/dir")
+        }
+
+        expect { subject.send(:validate_bundle_path) }.to raise_error(
+          Bundler::PathError,
+          "Your bundle path contains text matching " \
+          "/(?<!jar:file|jar|file|classpath|uri:classloader|uri|http|https):/, which is the " \
+          "path separator for your system. Bundler cannot " \
+          "function correctly when the Bundle path contains the " \
+          "system's PATH separator. Please change your " \
+          "bundle path to not match " \
+          "/(?<!jar:file|jar|file|classpath|uri:classloader|uri|http|https):/." \
+          "\nYour current bundle path is '#{Bundler.bundle_path}'."
+        )
+      end
     end
 
     context "ENV['PATH'] does not exist" do
@@ -319,7 +382,6 @@ describe Bundler::SharedHelpers do
       let(:ruby_lib_path) { "stubbed_ruby_lib_dir" }
 
       before do
-        allow(File).to receive(:expand_path).and_return(ruby_lib_path)
         ENV["RUBYLIB"] = ruby_lib_path
       end
 
@@ -348,7 +410,8 @@ describe Bundler::SharedHelpers do
 
       it "raises a PermissionError" do
         expect { subject.filesystem_access("/path", &file_op_block) }.to raise_error(
-          Bundler::PermissionError)
+          Bundler::PermissionError
+        )
       end
     end
 
@@ -357,7 +420,8 @@ describe Bundler::SharedHelpers do
 
       it "raises a TemporaryResourceError" do
         expect { subject.filesystem_access("/path", &file_op_block) }.to raise_error(
-          Bundler::TemporaryResourceError)
+          Bundler::TemporaryResourceError
+        )
       end
     end
 
@@ -366,7 +430,39 @@ describe Bundler::SharedHelpers do
 
       it "raises a VirtualProtocolError" do
         expect { subject.filesystem_access("/path", &file_op_block) }.to raise_error(
-          Bundler::VirtualProtocolError)
+          Bundler::VirtualProtocolError
+        )
+      end
+    end
+
+    context "system throws Errno::ENOTSUP", :ruby => "1.9" do
+      let(:file_op_block) { proc {|_path| raise Errno::ENOTSUP } }
+
+      it "raises a OperationNotSupportedError" do
+        expect { subject.filesystem_access("/path", &file_op_block) }.to raise_error(
+          Bundler::OperationNotSupportedError
+        )
+      end
+    end
+
+    context "system throws Errno::ENOSPC" do
+      let(:file_op_block) { proc {|_path| raise Errno::ENOSPC } }
+
+      it "raises a NoSpaceOnDeviceError" do
+        expect { subject.filesystem_access("/path", &file_op_block) }.to raise_error(
+          Bundler::NoSpaceOnDeviceError
+        )
+      end
+    end
+
+    context "system throws an unhandled SystemCallError" do
+      let(:error) { SystemCallError.new("Shields down", 1337) }
+      let(:file_op_block) { proc {|_path| raise error } }
+
+      it "raises a GenericSystemCallError" do
+        expect { subject.filesystem_access("/path", &file_op_block) }.to raise_error(
+          Bundler::GenericSystemCallError, /error accessing.+underlying.+Shields down/m
+        )
       end
     end
   end

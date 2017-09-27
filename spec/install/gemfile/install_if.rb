@@ -1,5 +1,4 @@
 # frozen_string_literal: true
-require "spec_helper"
 
 describe "bundle install with install_if conditionals" do
   it "follows the install_if DSL" do
@@ -15,9 +14,9 @@ describe "bundle install with install_if conditionals" do
       gem "rack"
     G
 
-    should_be_installed("rack 1.0", "activesupport 2.3.5")
-    should_not_be_installed("thin")
-    should_not_be_installed("foo")
+    expect(the_bundle).to include_gems("rack 1.0", "activesupport 2.3.5")
+    expect(the_bundle).not_to include_gems("thin")
+    expect(the_bundle).not_to include_gems("foo")
 
     lockfile_should_be <<-L
       GEM

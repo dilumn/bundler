@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Bundler
   class RubyVersion
     attr_reader :versions,
@@ -21,10 +22,14 @@ module Bundler
       #   must not be specified, or the engine version
       #   specified must match the version.
 
-      @versions           = Array(versions)
+      @versions = Array(versions).map do |v|
+        op, v = Gem::Requirement.parse(v)
+        op == "=" ? v.to_s : "#{op} #{v}"
+      end
+
       @gem_version        = Gem::Requirement.create(@versions.first).requirements.first.last
-      @input_engine       = engine
-      @engine             = engine || "ruby"
+      @input_engine       = engine && engine.to_s
+      @engine             = engine && engine.to_s || "ruby"
       @engine_versions    = (engine_version && Array(engine_version)) || @versions
       @engine_gem_version = Gem::Requirement.create(@engine_versions.first).requirements.first.last
       @patchlevel         = patchlevel
@@ -36,6 +41,22 @@ module Bundler
       output << " (#{engine} #{versions_string(engine_versions)})" unless engine == "ruby"
 
       output
+    end
+
+    # @private
+    PATTERN = /
+      ruby\s
+      ([\d.]+) # ruby version
+      (?:p(-?\d+))? # optional patchlevel
+      (?:\s\((\S+)\s(.+)\))? # optional engine info
+    /xo
+
+    # Returns a RubyVersion from the given string.
+    # @param [String] the version string to match.
+    # @return [RubyVersion,Nil] The version if the string is a valid RubyVersion
+    #         description, and nil otherwise.
+    def self.from_string(string)
+      new($1, $2, $3, $4) if string =~ PATTERN
     end
 
     def single_version_string
@@ -64,7 +85,7 @@ module Bundler
     #   2. ruby_version
     #   3. engine_version
     def diff(other)
-      raise ArgumentError, "Can only diff with a RubyVersion" unless other.is_a?(RubyVersion)
+      raise ArgumentError, "Can only diff with a RubyVersion, not a #{other.class}" unless other.is_a?(RubyVersion)
       if engine != other.engine && @input_engine
         [:engine, engine, other.engine]
       elsif versions.empty? || !matches?(versions, other.gem_version)
@@ -87,9 +108,11 @@ module Bundler
         # not defined in ruby 1.8.7
         "ruby"
       end
+      # :sob: mocking RUBY_VERSION breaks stuff on 1.8.7
+      ruby_version = ENV.fetch("BUNDLER_SPEC_RUBY_VERSION") { RUBY_VERSION }.dup
       ruby_engine_version = case ruby_engine
                             when "ruby"
-                              RUBY_VERSION.dup
+                              ruby_version
                             when "rbx"
                               Rubinius::VERSION.dup
                             when "jruby"
@@ -97,7 +120,22 @@ module Bundler
                             else
                               raise BundlerError, "RUBY_ENGINE value #{RUBY_ENGINE} is not recognized"
       end
-      @ruby_version ||= RubyVersion.new(RUBY_VERSION.dup, RUBY_PATCHLEVEL.to_s, ruby_engine, ruby_engine_version)
+      patchlevel = RUBY_PATCHLEVEL.to_s
+
+      @ruby_version ||= RubyVersion.new(ruby_version, patchlevel, ruby_engine, ruby_engine_version)
+    end
+
+    def to_gem_version_with_patchlevel
+      @gem_version_with_patch ||= begin
+        Gem::Version.create("#{@gem_version}.#{@patchlevel}")
+      rescue ArgumentError
+        @gem_version
+      end
+    end
+
+    def exact?
+      return @exact if defined?(@exact)
+      @exact = versions.all? {|v| Gem::Requirement.create(v).exact? }
     end
 
   private

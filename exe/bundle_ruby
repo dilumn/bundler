@@ -1,16 +1,17 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-Signal.trap("INT") { exit 1 }
-
-require "bundler/ruby_version"
-require "bundler/ruby_dsl"
 require "bundler/shared_helpers"
 
-module Bundler
-  class GemfileError < RuntimeError; end
-  class GemfileEvalError < GemfileError; end
+Bundler::SharedHelpers.major_deprecation(2, "the bundle_ruby executable has been removed in favor of `bundle platform --ruby`")
 
+Signal.trap("INT") { exit 1 }
+
+require "bundler/errors"
+require "bundler/ruby_version"
+require "bundler/ruby_dsl"
+
+module Bundler
   class Dsl
     include RubyDsl
 
@@ -43,8 +44,6 @@ module Bundler
     end
   end
 end
-
-STDERR.puts "Warning: bundle_ruby will be deprecated in Bundler 2.0.0."
 
 dsl = Bundler::Dsl.new
 begin

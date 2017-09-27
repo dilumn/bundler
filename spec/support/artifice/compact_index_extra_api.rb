@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require File.expand_path("../compact_index", __FILE__)
 
 Artifice.deactivate
@@ -15,8 +16,8 @@ class CompactIndexExtraApi < CompactIndexAPI
       file = tmp("versions.list")
       file.delete if file.file?
       file = CompactIndex::VersionsFile.new(file.to_s)
-      file.update_with(gems(gem_repo4))
-      CompactIndex.versions(file, nil, {})
+      file.create(gems(gem_repo4))
+      file.contents
     end
   end
 

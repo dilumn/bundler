@@ -1,10 +1,23 @@
 # frozen_string_literal: true
+
 require "pathname"
 
 module Spec
   module Path
     def root
       @root ||= Pathname.new(File.expand_path("../../..", __FILE__))
+    end
+
+    def gemspec
+      @gemspec ||= Pathname.new(File.expand_path(root.join("bundler.gemspec"), __FILE__))
+    end
+
+    def bindir
+      @bindir ||= Pathname.new(File.expand_path(root.join("exe"), __FILE__))
+    end
+
+    def spec_dir
+      @spec_dir ||= Pathname.new(File.expand_path(root.join("spec"), __FILE__))
     end
 
     def tmp(*path)
@@ -16,7 +29,11 @@ module Spec
     end
 
     def default_bundle_path(*path)
-      system_gem_path(*path)
+      if Bundler::VERSION.split(".").first.to_i < 2
+        system_gem_path(*path)
+      else
+        bundled_app(*[".bundle", ENV.fetch("BUNDLER_SPEC_RUBY_ENGINE", Gem.ruby_engine), Gem::ConfigMap[:ruby_version], *path].compact)
+      end
     end
 
     def bundled_app(*path)
@@ -78,7 +95,19 @@ module Spec
     end
 
     def bundler_path
-      Pathname.new(File.expand_path("../../../lib", __FILE__))
+      Pathname.new(File.expand_path(root.join("lib"), __FILE__))
+    end
+
+    def global_plugin_gem(*args)
+      home ".bundle", "plugin", "gems", *args
+    end
+
+    def local_plugin_gem(*args)
+      bundled_app ".bundle", "plugin", "gems", *args
+    end
+
+    def tmpdir(*args)
+      tmp "tmpdir", *args
     end
 
     extend self

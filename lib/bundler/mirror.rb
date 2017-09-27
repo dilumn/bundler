@@ -1,4 +1,7 @@
 # frozen_string_literal: true
+
+require "socket"
+
 module Bundler
   class Settings
     # Class used to build the mirror set and then find a mirror for a given URI
@@ -32,10 +35,10 @@ module Bundler
 
       def parse(key, value)
         config = MirrorConfig.new(key, value)
-        if config.all?
-          mirror = @all
+        mirror = if config.all?
+          @all
         else
-          mirror = (@mirrors[config.uri] = @mirrors[config.uri] || Mirror.new)
+          @mirrors[config.uri] ||= Mirror.new
         end
         config.update_mirror(mirror)
       end
@@ -43,7 +46,9 @@ module Bundler
     private
 
       def fetch_valid_mirror_for(uri)
-        mirror = (@mirrors[URI(uri.to_s.downcase)] || Mirror.new(uri)).validate!(@prober)
+        downcased = uri.to_s.downcase
+        mirror = @mirrors[downcased] || @mirrors[URI(downcased).host] || Mirror.new(uri)
+        mirror.validate!(@prober)
         mirror = Mirror.new(uri) unless mirror.valid?
         mirror
       end
@@ -115,13 +120,13 @@ module Bundler
 
       def initialize(config_line, value)
         uri, fallback =
-          config_line.match(%r{^mirror\.(all|.+?)(\.fallback_timeout)?\/?$}).captures
+          config_line.match(%r{\Amirror\.(all|.+?)(\.fallback_timeout)?\/?\z}).captures
         @fallback = !fallback.nil?
         @all = false
         if uri == "all"
           @all = true
         else
-          @uri = Settings.normalize_uri(uri)
+          @uri = URI(uri).absolute? ? Settings.normalize_uri(uri) : uri
         end
         @value = value
       end
@@ -177,7 +182,7 @@ module Bundler
   #   a given mirror.
   #
   # One mirror may correspond to many different addresses, both
-  #   because of it having many dns entries or just because
+  #   because of it having many dns entries or because
   #   the network interface is both ipv4 and ipv5
   class MirrorSockets
     def initialize(mirror)

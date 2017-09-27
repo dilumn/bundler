@@ -1,16 +1,16 @@
-require "tempfile"
-require "io/console" if RUBY_VERSION > "1.9.2"
-
 class Bundler::Thor
   module Shell
-    class Basic # rubocop:disable ClassLength
+    class Basic
       attr_accessor :base
       attr_reader   :padding
 
       # Initialize base, mute and padding to nil.
       #
       def initialize #:nodoc:
-        @base, @mute, @padding, @always_force = nil, false, 0, false
+        @base = nil
+        @mute = false
+        @padding = 0
+        @always_force = false
       end
 
       # Mute everything that's inside given block
@@ -24,7 +24,7 @@ class Bundler::Thor
 
       # Check if base is muted
       #
-      def mute? # rubocop:disable TrivialAccessors
+      def mute?
         @mute
       end
 
@@ -32,6 +32,15 @@ class Bundler::Thor
       #
       def padding=(value)
         @padding = [0, value].max
+      end
+
+      # Sets the output padding while executing a block and resets it.
+      #
+      def indent(count = 1)
+        orig_padding = padding
+        self.padding = padding + count
+        yield
+        self.padding = orig_padding
       end
 
       # Asks something to the user and receives a response.
@@ -98,7 +107,7 @@ class Bundler::Thor
         status = set_color status, color, true if color
 
         buffer = "#{status}#{spaces}#{message}"
-        buffer << "\n" unless buffer.end_with?("\n")
+        buffer = "#{buffer}\n" unless buffer.end_with?("\n")
 
         stdout.print(buffer)
         stdout.flush
@@ -148,10 +157,12 @@ class Bundler::Thor
       def print_table(array, options = {}) # rubocop:disable MethodLength
         return if array.empty?
 
-        formats, indent, colwidth = [], options[:indent].to_i, options[:colwidth]
+        formats = []
+        indent = options[:indent].to_i
+        colwidth = options[:colwidth]
         options[:truncate] = terminal_width if options[:truncate] == true
 
-        formats << "%-#{colwidth + 2}s" if colwidth
+        formats << "%-#{colwidth + 2}s".dup if colwidth
         start = colwidth ? 1 : 0
 
         colcount = array.max { |a, b| a.size <=> b.size }.size
@@ -161,32 +172,32 @@ class Bundler::Thor
         start.upto(colcount - 1) do |index|
           maxima = array.map { |row| row[index] ? row[index].to_s.size : 0 }.max
           maximas << maxima
-          if index == colcount - 1
-            # Don't output 2 trailing spaces when printing the last column
-            formats << "%-s"
-          else
-            formats << "%-#{maxima + 2}s"
-          end
+          formats << if index == colcount - 1
+                       # Don't output 2 trailing spaces when printing the last column
+                       "%-s".dup
+                     else
+                       "%-#{maxima + 2}s".dup
+                     end
         end
 
         formats[0] = formats[0].insert(0, " " * indent)
         formats << "%s"
 
         array.each do |row|
-          sentence = ""
+          sentence = "".dup
 
           row.each_with_index do |column, index|
             maxima = maximas[index]
 
-            if column.is_a?(Numeric)
+            f = if column.is_a?(Numeric)
               if index == row.size - 1
                 # Don't output 2 trailing spaces when printing the last column
-                f = "%#{maxima}s"
+                "%#{maxima}s"
               else
-                f = "%#{maxima}s  "
+                "%#{maxima}s  "
               end
             else
-              f = formats[index]
+              formats[index]
             end
             sentence << f % column.to_s
           end
@@ -211,7 +222,7 @@ class Bundler::Thor
         paras = message.split("\n\n")
 
         paras.map! do |unwrapped|
-          unwrapped.strip.gsub(/\n/, " ").squeeze(" ").gsub(/.{1,#{width}}(?:\s|\Z)/) { ($& + 5.chr).gsub(/\n\005/, "\n").gsub(/\005/, "\n") }
+          unwrapped.strip.tr("\n", " ").squeeze(" ").gsub(/.{1,#{width}}(?:\s|\Z)/) { ($& + 5.chr).gsub(/\n\005/, "\n").gsub(/\005/, "\n") }
         end
 
         paras.each do |para|
@@ -230,7 +241,7 @@ class Bundler::Thor
       # destination<String>:: the destination file to solve conflicts
       # block<Proc>:: an optional block that returns the value to be used in diff
       #
-      def file_collision(destination) # rubocop:disable MethodLength
+      def file_collision(destination)
         return true if @always_force
         options = block_given? ? "[Ynaqdh]" : "[Ynaqh]"
 
@@ -241,6 +252,9 @@ class Bundler::Thor
           )
 
           case answer
+          when nil
+            say ""
+            return true
           when is?(:yes), is?(:force), ""
             return true
           when is?(:no), is?(:skip)
@@ -249,7 +263,7 @@ class Bundler::Thor
             return @always_force = true
           when is?(:quit)
             say "Aborting..."
-            fail SystemExit
+            raise SystemExit
           when is?(:diff)
             show_diff(destination, yield) if block_given?
             say "Retrying..."
@@ -262,10 +276,10 @@ class Bundler::Thor
       # This code was copied from Rake, available under MIT-LICENSE
       # Copyright (c) 2003, 2004 Jim Weirich
       def terminal_width
-        if ENV["THOR_COLUMNS"]
-          result = ENV["THOR_COLUMNS"].to_i
+        result = if ENV["THOR_COLUMNS"]
+          ENV["THOR_COLUMNS"].to_i
         else
-          result = unix? ? dynamic_width : 80
+          unix? ? dynamic_width : 80
         end
         result < 10 ? 80 : result
       rescue
@@ -284,7 +298,7 @@ class Bundler::Thor
       # Apply color to the given string with optional bold. Disabled in the
       # Bundler::Thor::Shell::Basic class.
       #
-      def set_color(string, *args) #:nodoc:
+      def set_color(string, *) #:nodoc:
         string
       end
 
@@ -336,6 +350,7 @@ class Bundler::Thor
       def show_diff(destination, content) #:nodoc:
         diff_cmd = ENV["THOR_DIFF"] || ENV["RAILS_DIFF"] || "diff -u"
 
+        require "tempfile"
         Tempfile.open(File.basename(destination), File.dirname(destination)) do |temp|
           temp.write content
           temp.rewind
@@ -353,11 +368,11 @@ class Bundler::Thor
       end
 
       def dynamic_width_stty
-        %x(stty size 2>/dev/null).split[1].to_i
+        `stty size 2>/dev/null`.split[1].to_i
       end
 
       def dynamic_width_tput
-        %x(tput cols 2>/dev/null).to_i
+        `tput cols 2>/dev/null`.to_i
       end
 
       def unix?
@@ -370,7 +385,7 @@ class Bundler::Thor
           if chars.length <= width
             chars.join
           else
-            ( chars[0, width - 3].join) + "..."
+            chars[0, width - 3].join + "..."
           end
         end
       end
@@ -381,7 +396,8 @@ class Bundler::Thor
         end
       else
         def as_unicode
-          old, $KCODE = $KCODE, "U"
+          old = $KCODE
+          $KCODE = "U"
           yield
         ensure
           $KCODE = old
@@ -391,12 +407,12 @@ class Bundler::Thor
       def ask_simply(statement, color, options)
         default = options[:default]
         message = [statement, ("(#{default})" if default), nil].uniq.join(" ")
-        message = prepare_message(message, color)
+        message = prepare_message(message, *color)
         result = Bundler::Thor::LineEditor.readline(message, options)
 
         return unless result
 
-        result.strip!
+        result = result.strip
 
         if default && result == ""
           default

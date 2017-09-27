@@ -1,18 +1,23 @@
 # frozen_string_literal: true
+
 module Bundler
   # used for Creating Specifications from the Gemcutter Endpoint
   class EndpointSpecification < Gem::Specification
     ILLFORMED_MESSAGE = 'Ill-formed requirement ["#<YAML::Syck::DefaultKey'.freeze
     include MatchPlatform
 
-    attr_reader :name, :version, :platform, :dependencies, :required_rubygems_version, :required_ruby_version, :checksum
-    attr_accessor :source, :remote
+    attr_reader :name, :version, :platform, :required_rubygems_version, :required_ruby_version, :checksum
+    attr_accessor :source, :remote, :dependencies
 
     def initialize(name, version, platform, dependencies, metadata = nil)
+      super()
       @name         = name
       @version      = Gem::Version.create version
       @platform     = platform
       @dependencies = dependencies.map {|dep, reqs| build_dependency(dep, reqs) }
+
+      @loaded_from          = nil
+      @remote_specification = nil
 
       parse_metadata(metadata)
     end
@@ -71,6 +76,8 @@ module Bundler
         @remote_specification.post_install_message
       elsif _local_specification
         _local_specification.post_install_message
+      else
+        super
       end
     end
 
@@ -80,6 +87,8 @@ module Bundler
         @remote_specification.extensions
       elsif _local_specification
         _local_specification.extensions
+      else
+        super
       end
     end
 
@@ -91,6 +100,7 @@ module Bundler
     end
 
     def __swap__(spec)
+      SharedHelpers.ensure_same_dependencies(self, dependencies, spec.dependencies)
       @remote_specification = spec
     end
 
@@ -113,10 +123,12 @@ module Bundler
           @required_ruby_version = Gem::Requirement.new(v)
         end
       end
+    rescue => e
+      raise GemspecError, "There was an error parsing the metadata for the gem #{name} (#{version}): #{e.class}\n#{e}\nThe metadata was #{data.inspect}"
     end
 
-    def build_dependency(name, *requirements)
-      Gem::Dependency.new(name, *requirements)
+    def build_dependency(name, requirements)
+      Gem::Dependency.new(name, requirements)
     rescue ArgumentError => e
       raise unless e.message.include?(ILLFORMED_MESSAGE)
       puts # we shouldn't print the error message on the "fetching info" status line

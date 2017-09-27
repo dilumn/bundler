@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Bundler
   class Source
     class Rubygems
@@ -20,6 +21,8 @@ module Bundler
         #
         def cache_slug
           @cache_slug ||= begin
+            return nil unless SharedHelpers.md5_available?
+
             cache_uri = original_uri || uri
 
             uri_parts = [cache_uri.host, cache_uri.user, cache_uri.port, cache_uri.path]
@@ -28,6 +31,10 @@ module Bundler
             uri_parts[-1] = uri_digest
             uri_parts.compact.join(".")
           end
+        end
+
+        def to_s
+          "rubygems remote at #{anonymized_uri}"
         end
 
       private

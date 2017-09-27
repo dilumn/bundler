@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Bundler
   class Standalone
     def initialize(groups, definition)
@@ -38,7 +39,7 @@ module Bundler
     end
 
     def bundler_path
-      File.join(Bundler.settings[:path], "bundler")
+      Bundler.root.join(Bundler.settings[:path], "bundler")
     end
 
     def gem_path(path, spec)

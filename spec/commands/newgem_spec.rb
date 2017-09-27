@@ -1,7 +1,6 @@
 # frozen_string_literal: true
-require "spec_helper"
 
-describe "bundle gem" do
+RSpec.describe "bundle gem" do
   def reset!
     super
     global_config "BUNDLE_GEM__MIT" => "false", "BUNDLE_GEM__TEST" => "false", "BUNDLE_GEM__COC" => "false"
@@ -17,7 +16,7 @@ describe "bundle gem" do
   end
 
   def execute_bundle_gem(gem_name, flag = "", to_remove_push_guard = true)
-    bundle "gem #{gem_name} #{flag}"
+    bundle! "gem #{gem_name} #{flag}"
     remove_push_guard(gem_name) if to_remove_push_guard
     # reset gemspec cache for each test because of commit 3d4163a
     Bundler.clear_gemspec_cache
@@ -25,6 +24,7 @@ describe "bundle gem" do
 
   def gem_skeleton_assertions(gem_name)
     expect(bundled_app("#{gem_name}/#{gem_name}.gemspec")).to exist
+    expect(bundled_app("#{gem_name}/README.md")).to exist
     expect(bundled_app("#{gem_name}/Gemfile")).to exist
     expect(bundled_app("#{gem_name}/Rakefile")).to exist
     expect(bundled_app("#{gem_name}/lib/test/gem.rb")).to exist
@@ -36,15 +36,17 @@ describe "bundle gem" do
     [user]
       name = "Bundler User"
       email = user@example.com
+    [github]
+      user = bundleuser
     EOF
     @git_config_location = ENV["GIT_CONFIG"]
-    path = "#{File.expand_path("../../tmp", File.dirname(__FILE__))}/test_git_config.txt"
+    path = "#{File.expand_path(tmp, File.dirname(__FILE__))}/test_git_config.txt"
     File.open(path, "w") {|f| f.write(git_config_content) }
     ENV["GIT_CONFIG"] = path
   end
 
   after do
-    `rm "#{ENV["GIT_CONFIG"]}"` if File.exist?(ENV["GIT_CONFIG"])
+    FileUtils.rm(ENV["GIT_CONFIG"]) if File.exist?(ENV["GIT_CONFIG"])
     ENV["GIT_CONFIG"] = @git_config_location
   end
 
@@ -100,6 +102,13 @@ describe "bundle gem" do
       gem_skeleton_assertions(gem_name)
       expect(bundled_app("test-gem/CODE_OF_CONDUCT.md")).to exist
     end
+
+    describe "README additions" do
+      it "generates the README with a section for the Code of Conduct" do
+        expect(bundled_app("test-gem/README.md").read).to include("## Code of Conduct")
+        expect(bundled_app("test-gem/README.md").read).to include("https://github.com/bundleuser/#{gem_name}/blob/master/CODE_OF_CONDUCT.md")
+      end
+    end
   end
 
   shared_examples_for "--no-coc flag" do
@@ -110,11 +119,77 @@ describe "bundle gem" do
       gem_skeleton_assertions(gem_name)
       expect(bundled_app("test-gem/CODE_OF_CONDUCT.md")).to_not exist
     end
+
+    describe "README additions" do
+      it "generates the README without a section for the Code of Conduct" do
+        expect(bundled_app("test-gem/README.md").read).not_to include("## Code of Conduct")
+        expect(bundled_app("test-gem/README.md").read).not_to include("https://github.com/bundleuser/#{gem_name}/blob/master/CODE_OF_CONDUCT.md")
+      end
+    end
+  end
+
+  context "README.md" do
+    let(:gem_name) { "test_gem" }
+    let(:generated_gem) { Bundler::GemHelper.new(bundled_app(gem_name).to_s) }
+
+    context "git config github.user present" do
+      before do
+        execute_bundle_gem(gem_name)
+      end
+
+      it "contribute URL set to git username" do
+        expect(bundled_app("test_gem/README.md").read).not_to include("[USERNAME]")
+        expect(bundled_app("test_gem/README.md").read).to include("github.com/bundleuser")
+      end
+    end
+
+    context "git config github.user is absent" do
+      before do
+        sys_exec("git config --unset github.user")
+        reset!
+        in_app_root
+        bundle "gem #{gem_name}"
+        remove_push_guard(gem_name)
+      end
+
+      it "contribute URL set to [USERNAME]" do
+        expect(bundled_app("test_gem/README.md").read).to include("[USERNAME]")
+        expect(bundled_app("test_gem/README.md").read).not_to include("github.com/bundleuser")
+      end
+    end
+  end
+
+  it "creates a new git repository" do
+    in_app_root
+    bundle "gem test_gem"
+    expect(bundled_app("test_gem/.git")).to exist
+  end
+
+  context "when git is not available" do
+    let(:gem_name) { "test_gem" }
+
+    # This spec cannot have `git` available in the test env
+    before do
+      load_paths = [lib, spec]
+      load_path_str = "-I#{load_paths.join(File::PATH_SEPARATOR)}"
+
+      sys_exec "PATH=\"\" #{Gem.ruby} #{load_path_str} #{bindir.join("bundle")} gem #{gem_name}"
+    end
+
+    it "creates the gem without the need for git" do
+      expect(bundled_app("#{gem_name}/README.md")).to exist
+    end
+
+    it "doesn't create a git repo" do
+      expect(bundled_app("#{gem_name}/.git")).to_not exist
+    end
+
+    it "doesn't create a .gitignore file" do
+      expect(bundled_app("#{gem_name}/.gitignore")).to_not exist
+    end
   end
 
   it "generates a valid gemspec" do
-    system_gems ["rake-10.0.2"]
-
     in_app_root
     bundle "gem newgem --bin"
 
@@ -136,12 +211,11 @@ describe "bundle gem" do
     end
 
     Dir.chdir(bundled_app("newgem")) do
-      bundle "exec rake build"
+      system_gems ["rake-10.0.2"], :path => :bundle_path
+      bundle! "exec rake build"
     end
 
-    expect(exitstatus).to be_zero if exitstatus
-    expect(out).not_to include("ERROR")
-    expect(err).not_to include("ERROR")
+    expect(last_command.stdboth).not_to include("ERROR")
   end
 
   context "gem naming with relative paths" do
@@ -322,7 +396,7 @@ describe "bundle gem" do
       end
 
       it "requires 'test-gem'" do
-        expect(bundled_app("test_gem/spec/spec_helper.rb").read).to include("require 'test_gem'")
+        expect(bundled_app("test_gem/spec/spec_helper.rb").read).to include(%(require "test_gem"))
       end
 
       it "creates a default test which fails" do
@@ -378,11 +452,11 @@ describe "bundle gem" do
       end
 
       it "requires 'test-gem'" do
-        expect(bundled_app("test_gem/test/test_helper.rb").read).to include("require 'test_gem'")
+        expect(bundled_app("test_gem/test/test_helper.rb").read).to include(%(require "test_gem"))
       end
 
       it "requires 'minitest_helper'" do
-        expect(bundled_app("test_gem/test/test_gem_test.rb").read).to include("require 'test_helper'")
+        expect(bundled_app("test_gem/test/test_gem_test.rb").read).to include(%(require "test_helper"))
       end
 
       it "creates a default test which fails" do
@@ -406,7 +480,7 @@ describe "bundle gem" do
           Rake::TestTask.new(:test) do |t|
             t.libs << "test"
             t.libs << "lib"
-            t.test_files = FileList['test/**/*_test.rb']
+            t.test_files = FileList["test/**/*_test.rb"]
           end
 
           task :default => :test
@@ -585,7 +659,7 @@ describe "bundle gem" do
       end
 
       it "requires 'test/gem'" do
-        expect(bundled_app("test-gem/spec/spec_helper.rb").read).to include("require 'test/gem'")
+        expect(bundled_app("test-gem/spec/spec_helper.rb").read).to include(%(require "test/gem"))
       end
 
       it "creates a default test which fails" do
@@ -619,11 +693,11 @@ describe "bundle gem" do
       end
 
       it "requires 'test/gem'" do
-        expect(bundled_app("test-gem/test/test_helper.rb").read).to match(%r{require 'test/gem'})
+        expect(bundled_app("test-gem/test/test_helper.rb").read).to match(%r{require "test/gem"})
       end
 
       it "requires 'test_helper'" do
-        expect(bundled_app("test-gem/test/test/gem_test.rb").read).to match(/require 'test_helper'/)
+        expect(bundled_app("test-gem/test/test/gem_test.rb").read).to match(/require "test_helper"/)
       end
 
       it "creates a default test which fails" do
@@ -638,7 +712,7 @@ describe "bundle gem" do
           Rake::TestTask.new(:test) do |t|
             t.libs << "test"
             t.libs << "lib"
-            t.test_files = FileList['test/**/*_test.rb']
+            t.test_files = FileList["test/**/*_test.rb"]
           end
 
           task :default => :test
@@ -704,6 +778,29 @@ describe "bundle gem" do
 
       expect(bundled_app("a--a/a--a.gemspec")).to exist
     end
+
+    it "fails gracefully with a ." do
+      bundle "gem foo.gemspec"
+      expect(last_command.bundler_err).to end_with("Invalid gem name foo.gemspec -- `Foo.gemspec` is an invalid constant name")
+    end
+
+    it "fails gracefully with a ^" do
+      bundle "gem ^"
+      expect(last_command.bundler_err).to end_with("Invalid gem name ^ -- `^` is an invalid constant name")
+    end
+
+    it "fails gracefully with a space" do
+      bundle "gem 'foo bar'"
+      expect(last_command.bundler_err).to end_with("Invalid gem name foo bar -- `Foo bar` is an invalid constant name")
+    end
+
+    it "fails gracefully when multiple names are passed" do
+      bundle "gem foo bar baz"
+      expect(last_command.bundler_err).to eq(<<-E.strip)
+ERROR: "bundle gem" was called with arguments ["foo", "bar", "baz"]
+Usage: "bundle gem NAME [OPTIONS]"
+      E
+    end
   end
 
   describe "#ensure_safe_gem_name" do
@@ -743,7 +840,7 @@ describe "bundle gem" do
     it "asks about test framework" do
       global_config "BUNDLE_GEM__MIT" => "false", "BUNDLE_GEM__COC" => "false"
 
-      bundle "gem foobar" do |input|
+      bundle "gem foobar" do |input, _, _|
         input.puts "rspec"
       end
 
@@ -766,7 +863,7 @@ describe "bundle gem" do
 
       bundle :config
 
-      bundle "gem foobar" do |input|
+      bundle "gem foobar" do |input, _, _|
         input.puts "yes"
       end
 
@@ -776,11 +873,33 @@ describe "bundle gem" do
     it "asks about CoC" do
       global_config "BUNDLE_GEM__MIT" => "false", "BUNDLE_GEM__TEST" => "false"
 
-      bundle "gem foobar" do |input|
+      bundle "gem foobar" do |input, _, _|
         input.puts "yes"
       end
 
       expect(bundled_app("foobar/CODE_OF_CONDUCT.md")).to exist
+    end
+  end
+
+  context "on conflicts with a previously created file" do
+    it "should fail gracefully" do
+      in_app_root do
+        FileUtils.touch("conflict-foobar")
+      end
+      bundle "gem conflict-foobar"
+      expect(last_command.bundler_err).to include("Errno::ENOTDIR")
+      expect(exitstatus).to eql(32) if exitstatus
+    end
+  end
+
+  context "on conflicts with a previously created directory" do
+    it "should succeed" do
+      in_app_root do
+        FileUtils.mkdir_p("conflict-foobar/Gemfile")
+      end
+      bundle! "gem conflict-foobar"
+      expect(last_command.stdout).to include("file_clash  conflict-foobar/Gemfile").
+        and include "Initializing git repo in #{bundled_app("conflict-foobar")}"
     end
   end
 end

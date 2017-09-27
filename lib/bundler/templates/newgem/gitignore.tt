@@ -1,6 +1,5 @@
 /.bundle/
 /.yardoc
-/Gemfile.lock
 /_yardoc/
 /coverage/
 /doc/
@@ -13,4 +12,9 @@
 *.o
 *.a
 mkmf.log
+<%- end -%>
+<%- if config[:test] == "rspec" -%>
+
+# rspec failure tracking
+.rspec_status
 <%- end -%>

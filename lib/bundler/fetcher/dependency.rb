@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require "bundler/fetcher/base"
 require "cgi"
 
@@ -6,11 +7,11 @@ module Bundler
   class Fetcher
     class Dependency < Base
       def available?
-        fetch_uri.scheme != "file" && downloader.fetch(dependency_api_uri)
+        @available ||= fetch_uri.scheme != "file" && downloader.fetch(dependency_api_uri)
       rescue NetworkDownError => e
         raise HTTPError, e.message
       rescue AuthenticationRequiredError
-        # We got a 401 from the server. Just fail.
+        # Fail since we got a 401 from the server.
         raise
       rescue HTTPError
         false
@@ -23,7 +24,7 @@ module Bundler
       def specs(gem_names, full_dependency_list = [], last_spec_list = [])
         query_list = gem_names.uniq - full_dependency_list
 
-        log_specs(query_list)
+        log_specs "Query List: #{query_list.inspect}"
 
         return last_spec_list if query_list.empty?
 
@@ -33,9 +34,13 @@ module Bundler
 
         returned_gems = spec_list.map(&:first).uniq
         specs(deps_list, full_dependency_list + returned_gems, spec_list + last_spec_list)
-      rescue HTTPError, MarshalError, GemspecError
+      rescue MarshalError
         Bundler.ui.info "" unless Bundler.ui.debug? # new line now that the dots are over
         Bundler.ui.debug "could not fetch from the dependency API, trying the full index"
+        nil
+      rescue HTTPError, GemspecError
+        Bundler.ui.info "" unless Bundler.ui.debug? # new line now that the dots are over
+        Bundler.ui.debug "could not fetch from the dependency API\nit's suggested to retry using the full index via `bundle install --full-index`"
         nil
       end
 
@@ -50,7 +55,7 @@ module Bundler
         gem_list = []
         gem_names.each_slice(Source::Rubygems::API_REQUEST_SIZE) do |names|
           marshalled_deps = downloader.fetch(dependency_api_uri(names)).body
-          gem_list.push(*Bundler.load_marshal(marshalled_deps))
+          gem_list.concat(Bundler.load_marshal(marshalled_deps))
         end
         gem_list
       end
@@ -60,7 +65,7 @@ module Bundler
         spec_list = []
 
         gem_list.each do |s|
-          deps_list.push(*s[:dependencies].map(&:first))
+          deps_list.concat(s[:dependencies].map(&:first))
           deps = s[:dependencies].map {|n, d| [n, d.split(", ")] }
           spec_list.push([s[:name], s[:number], s[:platform], deps])
         end
@@ -69,19 +74,8 @@ module Bundler
 
       def dependency_api_uri(gem_names = [])
         uri = fetch_uri + "api/v1/dependencies"
-        uri.query = "gems=#{CGI.escape(gem_names.join(","))}" if gem_names.any?
+        uri.query = "gems=#{CGI.escape(gem_names.sort.join(","))}" if gem_names.any?
         uri
-      end
-
-    private
-
-      def log_specs(query_list)
-        # only display the message on the first run
-        if Bundler.ui.debug?
-          Bundler.ui.debug "Query List: #{query_list.inspect}"
-        else
-          Bundler.ui.info ".", false
-        end
       end
     end
   end

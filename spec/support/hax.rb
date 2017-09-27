@@ -1,12 +1,22 @@
 # frozen_string_literal: true
+
 require "rubygems"
 
-class Gem::Platform
-  @local = new(ENV["BUNDLER_SPEC_PLATFORM"]) if ENV["BUNDLER_SPEC_PLATFORM"]
+module Gem
+  if version = ENV["BUNDLER_SPEC_RUBYGEMS_VERSION"]
+    remove_const(:VERSION) if const_defined?(:VERSION)
+    VERSION = version
+  end
+
+  class Platform
+    @local = new(ENV["BUNDLER_SPEC_PLATFORM"]) if ENV["BUNDLER_SPEC_PLATFORM"]
+  end
+  @platforms = [Gem::Platform::RUBY, Gem::Platform.local]
 end
 
 if ENV["BUNDLER_SPEC_VERSION"]
   module Bundler
+    remove_const(:VERSION) if const_defined?(:VERSION)
     VERSION = ENV["BUNDLER_SPEC_VERSION"].dup
   end
 end
@@ -40,4 +50,12 @@ class Object
       JRUBY_VERSION = ENV["BUNDLER_SPEC_RUBY_ENGINE_VERSION"]
     end
   end
+end
+
+if ENV["BUNDLER_SPEC_IGNORE_COMPATIBILITY_GUARD"]
+  $LOADED_FEATURES << File.expand_path("../../../bundler/compatibility_guard.rb", __FILE__)
+  $LOADED_FEATURES << File.expand_path("../../../bundler/compatibility_guard", __FILE__)
+  $LOADED_FEATURES << "bundler/compatibility_guard.rb"
+  $LOADED_FEATURES << "bundler/compatibility_guard"
+  require "bundler/compatibility_guard"
 end

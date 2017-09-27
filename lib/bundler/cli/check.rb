@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Bundler
   class CLI::Check
     attr_reader :options
@@ -8,14 +9,11 @@ module Bundler
     end
 
     def run
-      if options[:path]
-        Bundler.settings[:path] = File.expand_path(options[:path])
-        Bundler.settings[:disable_shared_gems] = true
-      end
+      Bundler.settings.set_command_option_if_given :path, options[:path]
 
       begin
         definition = Bundler.definition
-        definition.validate_ruby!
+        definition.validate_runtime!
         not_installed = definition.missing_specs
       rescue GemNotFound, VersionConflict
         Bundler.ui.error "Bundler can't satisfy your Gemfile's dependencies."
@@ -28,7 +26,7 @@ module Bundler
         not_installed.each {|s| Bundler.ui.error " * #{s.name} (#{s.version})" }
         Bundler.ui.warn "Install missing gems with `bundle install`"
         exit 1
-      elsif !Bundler.default_lockfile.exist? && Bundler.settings[:frozen]
+      elsif !Bundler.default_lockfile.file? && Bundler.frozen?
         Bundler.ui.error "This bundle has been frozen, but there is no #{Bundler.default_lockfile.relative_path_from(SharedHelpers.pwd)} present"
         exit 1
       else

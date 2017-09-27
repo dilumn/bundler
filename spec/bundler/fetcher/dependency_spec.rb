@@ -1,7 +1,6 @@
 # frozen_string_literal: true
-require "spec_helper"
 
-describe Bundler::Fetcher::Dependency do
+RSpec.describe Bundler::Fetcher::Dependency do
   let(:downloader)  { double(:downloader) }
   let(:remote)      { double(:remote, :uri => URI("http://localhost:5000")) }
   let(:display_uri) { "http://sample_uri.com" }
@@ -64,7 +63,7 @@ describe Bundler::Fetcher::Dependency do
   end
 
   describe "#specs" do
-    let(:gem_names)            { %w(foo bar) }
+    let(:gem_names)            { %w[foo bar] }
     let(:full_dependency_list) { ["bar"] }
     let(:last_spec_list)       { [["boulder", gem_version1, "ruby", resque]] }
     let(:fail_errors)          { double(:fail_errors) }
@@ -79,6 +78,9 @@ describe Bundler::Fetcher::Dependency do
       allow(bundler_retry).to receive(:attempts) {|&block| block.call }
       allow(subject).to receive(:log_specs) {}
       allow(subject).to receive(:remote_uri).and_return(remote_uri)
+      allow(Bundler).to receive_message_chain(:ui, :debug?)
+      allow(Bundler).to receive_message_chain(:ui, :info)
+      allow(Bundler).to receive_message_chain(:ui, :debug)
     end
 
     context "when there are given gem names that are not in the full dependency list" do
@@ -100,7 +102,7 @@ describe Bundler::Fetcher::Dependency do
 
     context "when all given gem names are in the full dependency list" do
       let(:gem_names)            { ["foo"] }
-      let(:full_dependency_list) { %w(foo bar) }
+      let(:full_dependency_list) { %w[foo bar] }
       let(:last_spec_list)       { ["boulder"] }
 
       it "should return a hash with the remote_uri and the last spec list" do
@@ -139,19 +141,8 @@ describe Bundler::Fetcher::Dependency do
     end
 
     shared_examples_for "the error is properly handled" do
-      before do
-        allow(Bundler).to receive_message_chain(:ui, :debug?)
-        allow(Bundler).to receive_message_chain(:ui, :info)
-        allow(Bundler).to receive_message_chain(:ui, :debug)
-      end
-
       it "should return nil" do
         expect(subject.specs(gem_names, full_dependency_list, last_spec_list)).to be_nil
-      end
-
-      it "should log the inability to fetch from API at debug level" do
-        expect(Bundler).to receive_message_chain(:ui, :debug).with("could not fetch from the dependency API, trying the full index")
-        subject.specs(gem_names, full_dependency_list, last_spec_list)
       end
 
       context "debug logging is not on" do
@@ -164,27 +155,41 @@ describe Bundler::Fetcher::Dependency do
       end
     end
 
+    shared_examples_for "the error suggests retrying with the full index" do
+      it "should log the inability to fetch from API at debug level" do
+        expect(Bundler).to receive_message_chain(:ui, :debug).with("could not fetch from the dependency API\nit's suggested to retry using the full index via `bundle install --full-index`")
+        subject.specs(gem_names, full_dependency_list, last_spec_list)
+      end
+    end
+
     context "when an HTTPError occurs" do
       before { allow(subject).to receive(:dependency_specs) { raise Bundler::HTTPError.new } }
 
       it_behaves_like "the error is properly handled"
-    end
-
-    context "when a MarshalError occurs" do
-      before { allow(subject).to receive(:dependency_specs) { raise Bundler::MarshalError.new } }
-
-      it_behaves_like "the error is properly handled"
+      it_behaves_like "the error suggests retrying with the full index"
     end
 
     context "when a GemspecError occurs" do
       before { allow(subject).to receive(:dependency_specs) { raise Bundler::GemspecError.new } }
 
       it_behaves_like "the error is properly handled"
+      it_behaves_like "the error suggests retrying with the full index"
+    end
+
+    context "when a MarshalError occurs" do
+      before { allow(subject).to receive(:dependency_specs) { raise Bundler::MarshalError.new } }
+
+      it_behaves_like "the error is properly handled"
+
+      it "should log the inability to fetch from API and mention retrying" do
+        expect(Bundler).to receive_message_chain(:ui, :debug).with("could not fetch from the dependency API, trying the full index")
+        subject.specs(gem_names, full_dependency_list, last_spec_list)
+      end
     end
   end
 
   describe "#dependency_specs" do
-    let(:gem_names)                { [%w(foo bar), %w(bundler rubocop)] }
+    let(:gem_names)                { [%w[foo bar], %w[bundler rubocop]] }
     let(:gem_list)                 { double(:gem_list) }
     let(:formatted_specs_and_deps) { double(:formatted_specs_and_deps) }
 
@@ -195,7 +200,8 @@ describe Bundler::Fetcher::Dependency do
 
     it "should log the query list at debug level" do
       expect(Bundler).to receive_message_chain(:ui, :debug).with(
-        "Query Gemcutter Dependency Endpoint API: foo,bar,bundler,rubocop")
+        "Query Gemcutter Dependency Endpoint API: foo,bar,bundler,rubocop"
+      )
       subject.dependency_specs(gem_names)
     end
 
@@ -205,7 +211,7 @@ describe Bundler::Fetcher::Dependency do
   end
 
   describe "#unmarshalled_dep_gems" do
-    let(:gem_names)         { [%w(foo bar), %w(bundler rubocop)] }
+    let(:gem_names)         { [%w[foo bar], %w[bundler rubocop]] }
     let(:dep_api_uri)       { double(:dep_api_uri) }
     let(:unmarshalled_gems) { double(:unmarshalled_gems) }
     let(:fetch_response)    { double(:fetch_response, :body => double(:body)) }
@@ -213,7 +219,7 @@ describe Bundler::Fetcher::Dependency do
 
     before { allow(subject).to receive(:dependency_api_uri).with(gem_names).and_return(dep_api_uri) }
 
-    it "should fetch dependencies from Rubygems and unmarshal them" do
+    it "should fetch dependencies from RubyGems and unmarshal them" do
       expect(gem_names).to receive(:each_slice).with(rubygems_limit).and_call_original
       expect(downloader).to receive(:fetch).with(dep_api_uri).and_return(fetch_response)
       expect(Bundler).to receive(:load_marshal).with(fetch_response.body).and_return([unmarshalled_gems])
@@ -247,7 +253,7 @@ describe Bundler::Fetcher::Dependency do
       spec_list, deps_list = subject.get_formatted_specs_and_deps(gem_list)
       expect(spec_list).to eq([["typhoeus", "1.0.1", "ruby", [["resque", ["req3,req4"]]]],
                                ["grape", "2.0.2", "jruby", [["faraday", ["req1,req2"]]]]])
-      expect(deps_list).to eq(%w(resque faraday))
+      expect(deps_list).to eq(%w[resque faraday])
     end
   end
 
@@ -255,13 +261,14 @@ describe Bundler::Fetcher::Dependency do
     let(:uri) { URI("http://gem-api.com") }
 
     context "with gem names" do
-      let(:gem_names) { [%w(foo bar), %w(bundler rubocop)] }
+      let(:gem_names) { %w[foo bar bundler rubocop] }
 
       before { allow(subject).to receive(:fetch_uri).and_return(uri) }
 
       it "should return an api calling uri with the gems in the query" do
         expect(subject.dependency_api_uri(gem_names).to_s).to eq(
-          "http://gem-api.com/api/v1/dependencies?gems=foo%2Cbar%2Cbundler%2Crubocop")
+          "http://gem-api.com/api/v1/dependencies?gems=bar%2Cbundler%2Cfoo%2Crubocop"
+        )
       end
     end
 
@@ -272,7 +279,8 @@ describe Bundler::Fetcher::Dependency do
 
       it "should return an api calling uri with no query" do
         expect(subject.dependency_api_uri(gem_names).to_s).to eq(
-          "http://gem-api.com/api/v1/dependencies")
+          "http://gem-api.com/api/v1/dependencies"
+        )
       end
     end
   end

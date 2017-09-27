@@ -1,8 +1,8 @@
 # frozen_string_literal: true
-require "spec_helper"
+
 require "bundler/ssl_certs/certificate_manager"
 
-describe Bundler::SSLCerts::CertificateManager do
+RSpec.describe Bundler::SSLCerts::CertificateManager do
   let(:rubygems_path)      { root }
   let(:stub_cert)          { File.join(root.to_s, "lib", "rubygems", "ssl_certs", "rubygems.org", "ssl-cert.pem") }
   let(:rubygems_certs_dir) { File.join(root.to_s, "lib", "rubygems", "ssl_certs", "rubygems.org") }
@@ -38,7 +38,7 @@ describe Bundler::SSLCerts::CertificateManager do
 
     it "should set bundler_certs as the paths of the bundler ssl certs" do
       expect(subject.bundler_certs).to include(File.join(root, "lib/bundler/ssl_certs/rubygems.global.ssl.fastly.net/DigiCertHighAssuranceEVRootCA.pem"))
-      expect(subject.bundler_certs).to include(File.join(root, "lib/bundler/ssl_certs/index.rubygems.org/GlobalSignRoot.pem"))
+      expect(subject.bundler_certs).to include(File.join(root, "lib/bundler/ssl_certs/index.rubygems.org/GlobalSignRootCA.pem"))
     end
 
     context "when rubygems_path is not nil" do
@@ -72,17 +72,17 @@ describe Bundler::SSLCerts::CertificateManager do
     context "when certificate manager is not up to date" do
       before do
         allow(subject).to receive(:up_to_date?).and_return(false)
-        allow(FileUtils).to receive(:rm)
-        allow(FileUtils).to receive(:cp)
+        allow(bundler_fileutils).to receive(:rm)
+        allow(bundler_fileutils).to receive(:cp)
       end
 
       it "should remove the current bundler certs" do
-        expect(FileUtils).to receive(:rm).with(subject.bundler_certs)
+        expect(bundler_fileutils).to receive(:rm).with(subject.bundler_certs)
         subject.update!
       end
 
       it "should copy the rubygems certs into bundler certs" do
-        expect(FileUtils).to receive(:cp).with(subject.rubygems_certs, subject.bundler_cert_path)
+        expect(bundler_fileutils).to receive(:cp).with(subject.rubygems_certs, subject.bundler_cert_path)
         subject.update!
       end
 

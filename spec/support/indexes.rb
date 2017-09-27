@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Spec
   module Indexes
     def dep(name, reqs = nil)
@@ -13,15 +14,19 @@ module Spec
 
     alias_method :platforms, :platform
 
-    def resolve
+    def resolve(args = [])
       @platforms ||= ["ruby"]
       deps = []
+      default_source = instance_double("Bundler::Source::Rubygems", :specs => @index)
+      source_requirements = { :default => default_source }
       @deps.each do |d|
         @platforms.each do |p|
+          source_requirements[d.name] = d.source = default_source
           deps << Bundler::DepProxy.new(d, p)
         end
       end
-      Bundler::Resolver.resolve(deps, @index)
+      source_requirements ||= {}
+      Bundler::Resolver.resolve(deps, @index, source_requirements, *args)
     end
 
     def should_resolve_as(specs)
@@ -30,8 +35,8 @@ module Spec
       expect(got).to eq(specs.sort)
     end
 
-    def should_resolve_and_include(specs)
-      got = resolve
+    def should_resolve_and_include(specs, args = [])
+      got = resolve(args)
       got = got.map(&:full_name).sort
       specs.each do |s|
         expect(got).to include(s)
@@ -49,10 +54,29 @@ module Spec
       build_spec(*args, &blk).first
     end
 
+    def locked(*args)
+      Bundler::SpecSet.new(args.map do |name, version|
+        gem(name, version)
+      end)
+    end
+
+    def should_conservative_resolve_and_include(opts, unlock, specs)
+      # empty unlock means unlock all
+      opts = Array(opts)
+      search = Bundler::GemVersionPromoter.new(@locked, unlock).tap do |s|
+        s.level = opts.first
+        s.strict = opts.include?(:strict)
+      end
+      should_resolve_and_include specs, [@base, search]
+    end
+
     def an_awesome_index
       build_index do
-        gem "rack", %w(0.8 0.9 0.9.1 0.9.2 1.0 1.1)
-        gem "rack-mount", %w(0.4 0.5 0.5.1 0.5.2 0.6)
+        gem "rack", %w[0.8 0.9 0.9.1 0.9.2 1.0 1.1]
+        gem "rack-mount", %w[0.4 0.5 0.5.1 0.5.2 0.6]
+
+        # --- Pre-release support
+        gem "rubygems\0", ["1.3.2"]
 
         # --- Rails
         versions "1.2.3 2.2.3 2.3.5 3.0.0.beta 3.0.0.beta1" do |version|
@@ -113,6 +137,14 @@ module Spec
             dep "activesupport", ">= #{version}"
           end
         end
+
+        gem "reform", ["1.0.0"] do
+          dep "activesupport", ">= 1.0.0.beta1"
+        end
+
+        gem "need-pre", ["1.0.0"] do
+          dep "activesupport", "~> 3.0.0.beta1"
+        end
       end
     end
 
@@ -120,7 +152,7 @@ module Spec
     # goes well, it should resolve to 3.0.4
     def a_conflict_index
       build_index do
-        gem "builder", %w(3.0.4 3.1.4)
+        gem "builder", %w[3.0.4 3.1.4]
         gem("grape", "0.2.6") do
           dep "builder", ">= 0"
         end
@@ -140,11 +172,11 @@ module Spec
 
     def a_complex_conflict_index
       build_index do
-        gem("a", %w(1.0.2 1.1.4 1.2.0 1.4.0)) do
+        gem("a", %w[1.0.2 1.1.4 1.2.0 1.4.0]) do
           dep "d", ">= 0"
         end
 
-        gem("d", %w(1.3.0 1.4.1)) do
+        gem("d", %w[1.3.0 1.4.1]) do
           dep "x", ">= 0"
         end
 
@@ -187,7 +219,7 @@ module Spec
 
     def index_with_conflict_on_child
       build_index do
-        gem "json", %w(1.6.5 1.7.7 1.8.0)
+        gem "json", %w[1.6.5 1.7.7 1.8.0]
 
         gem("chef", "10.26") do
           dep "json", [">= 1.4.4", "<= 1.7.7"]
@@ -207,7 +239,7 @@ module Spec
     # Issue #3459
     def a_complicated_index
       build_index do
-        gem "foo", %w(3.0.0 3.0.5) do
+        gem "foo", %w[3.0.0 3.0.5] do
           dep "qux", ["~> 3.1"]
           dep "baz", ["< 9.0", ">= 5.0"]
           dep "bar", ["~> 1.0"]
@@ -246,7 +278,7 @@ module Spec
           dep "garply", [">= 0.3.1"]
         end
 
-        gem "grault", %w(2.6.3 3.1.1)
+        gem "grault", %w[2.6.3 3.1.1]
 
         gem "garply", "0.5.1" do
           dep "waldo", ["~> 0.1.3"]
@@ -256,7 +288,7 @@ module Spec
           dep "plugh", ["~> 0.6.0"]
         end
 
-        gem "plugh", %w(0.6.3 0.6.11 0.7.0)
+        gem "plugh", %w[0.6.3 0.6.11 0.7.0]
 
         gem "qux", "3.2.21" do
           dep "plugh", [">= 0.6.4", "~> 0.6"]
@@ -269,7 +301,7 @@ module Spec
 
     def a_unresovable_child_index
       build_index do
-        gem "json", %w(1.8.0)
+        gem "json", %w[1.8.0]
 
         gem("chef", "10.26") do
           dep "json", [">= 1.4.4", "<= 1.7.7"]
@@ -288,10 +320,10 @@ module Spec
 
     def a_index_with_root_conflict_on_child
       build_index do
-        gem "builder", %w(2.1.2 3.0.1 3.1.3)
-        gem "i18n", %w(0.4.1 0.4.2)
+        gem "builder", %w[2.1.2 3.0.1 3.1.3]
+        gem "i18n", %w[0.4.1 0.4.2]
 
-        gem "activesupport", %w(3.0.0 3.0.1 3.0.5 3.1.7)
+        gem "activesupport", %w[3.0.0 3.0.1 3.0.5 3.1.7]
 
         gem("activemodel", "3.0.5") do
           dep "activesupport", "= 3.0.5"

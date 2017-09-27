@@ -14,11 +14,11 @@ class Bundler::Thor
   autoload :Group,      "bundler/vendor/thor/lib/thor/group"
 
   # Shortcuts for help.
-  HELP_MAPPINGS       = %w[-h -? --help -D]
+  HELP_MAPPINGS       = %w(-h -? --help -D)
 
   # Bundler::Thor methods that should not be overwritten by the user.
-  THOR_RESERVED_WORDS = %w[invoke shell options behavior root destination_root relative_root
-                           action add_file create_file in_root inside run run_ruby_script]
+  THOR_RESERVED_WORDS = %w(invoke shell options behavior root destination_root relative_root
+                           action add_file create_file in_root inside run run_ruby_script)
 
   TEMPLATE_EXTNAME = ".tt"
 
@@ -41,7 +41,7 @@ class Bundler::Thor
     #
     # config<Hash>:: Configuration for this Bundler::Thor class.
     #
-    def initialize(args = [], local_options = {}, config = {}) # rubocop:disable MethodLength
+    def initialize(args = [], local_options = {}, config = {})
       parse_options = self.class.class_options
 
       # The start method splits inbound arguments at the first argument
@@ -52,18 +52,21 @@ class Bundler::Thor
       command_options = config.delete(:command_options) # hook for start
       parse_options = parse_options.merge(command_options) if command_options
       if local_options.is_a?(Array)
-        array_options, hash_options = local_options, {}
+        array_options = local_options
+        hash_options = {}
       else
         # Handle the case where the class was explicitly instantiated
         # with pre-parsed options.
-        array_options, hash_options = [], local_options
+        array_options = []
+        hash_options = local_options
       end
 
       # Let Bundler::Thor::Options parse the options first, so it can remove
       # declared options from the array. This will leave us with
       # a list of arguments that weren't declared.
       stop_on_unknown = self.class.stop_on_unknown_option? config[:current_command]
-      opts = Bundler::Thor::Options.new(parse_options, hash_options, stop_on_unknown)
+      disable_required_check = self.class.disable_required_check? config[:current_command]
+      opts = Bundler::Thor::Options.new(parse_options, hash_options, stop_on_unknown, disable_required_check)
       self.options = opts.parse(array_options)
       self.options = config[:class_options].merge(options) if config[:class_options]
 
@@ -148,10 +151,31 @@ class Bundler::Thor
         !!check_unknown_options
       end
 
+      # If you want to raise an error when the default value of an option does not match
+      # the type call check_default_type!
+      # This is disabled by default for compatibility.
+      def check_default_type!
+        @check_default_type = true
+      end
+
+      def check_default_type #:nodoc:
+        @check_default_type ||= from_superclass(:check_default_type, false)
+      end
+
+      def check_default_type? #:nodoc:
+        !!check_default_type
+      end
+
       # If true, option parsing is suspended as soon as an unknown option or a
       # regular argument is encountered.  All remaining arguments are passed to
       # the command as regular arguments.
       def stop_on_unknown_option?(command_name) #:nodoc:
+        false
+      end
+
+      # If true, option set will not suspend the execution of the command when
+      # a required option is not provided.
+      def disable_required_check?(command_name) #:nodoc:
         false
       end
 
@@ -205,7 +229,7 @@ class Bundler::Thor
       # ==== Errors
       # ArgumentError:: Raised if you supply a required argument after a non required one.
       #
-      def argument(name, options = {}) # rubocop:disable MethodLength
+      def argument(name, options = {})
         is_thor_reserved_word?(name, :argument)
         no_commands { attr_accessor name }
 
@@ -219,11 +243,13 @@ class Bundler::Thor
 
         remove_argument name
 
-        arguments.each do |argument|
-          next if argument.required?
-          fail ArgumentError, "You cannot have #{name.to_s.inspect} as required argument after " <<
-                               "the non-required argument #{argument.human_name.inspect}."
-        end if required
+        if required
+          arguments.each do |argument|
+            next if argument.required?
+            raise ArgumentError, "You cannot have #{name.to_s.inspect} as required argument after " \
+                                "the non-required argument #{argument.human_name.inspect}."
+          end
+        end
 
         options[:required] = required
 
@@ -343,7 +369,7 @@ class Bundler::Thor
       #
       def all_commands
         @all_commands ||= from_superclass(:all_commands, Bundler::Thor::CoreExt::OrderedHash.new)
-        @all_commands.merge(commands)
+        @all_commands.merge!(commands)
       end
       alias_method :all_tasks, :all_commands
 
@@ -467,20 +493,18 @@ class Bundler::Thor
       alias_method :public_task, :public_command
 
       def handle_no_command_error(command, has_namespace = $thor_runner) #:nodoc:
-        if has_namespace
-          fail UndefinedCommandError, "Could not find command #{command.inspect} in #{namespace.inspect} namespace."
-        else
-          fail UndefinedCommandError, "Could not find command #{command.inspect}."
-        end
+        raise UndefinedCommandError, "Could not find command #{command.inspect} in #{namespace.inspect} namespace." if has_namespace
+        raise UndefinedCommandError, "Could not find command #{command.inspect}."
       end
       alias_method :handle_no_task_error, :handle_no_command_error
 
       def handle_argument_error(command, error, args, arity) #:nodoc:
-        msg = "ERROR: \"#{basename} #{command.name}\" was called with "
+        name = [command.ancestor_name, command.name].compact.join(" ")
+        msg = "ERROR: \"#{basename} #{name}\" was called with ".dup
         msg << "no arguments"               if     args.empty?
         msg << "arguments " << args.inspect unless args.empty?
         msg << "\nUsage: #{banner(command).inspect}"
-        fail InvocationError, msg
+        raise InvocationError, msg
       end
 
     protected
@@ -513,14 +537,13 @@ class Bundler::Thor
         padding = options.map { |o| o.aliases.size }.max.to_i * 4
 
         options.each do |option|
-          unless option.hide
-            item = [option.usage(padding)]
-            item.push(option.description ? "# #{option.description}" : "")
+          next if option.hide
+          item = [option.usage(padding)]
+          item.push(option.description ? "# #{option.description}" : "")
 
-            list << item
-            list << ["", "# Default: #{option.default}"] if option.show_default?
-            list << ["", "# Possible values: #{option.enum.join(', ')}"] if option.enum
-          end
+          list << item
+          list << ["", "# Default: #{option.default}"] if option.show_default?
+          list << ["", "# Possible values: #{option.enum.join(', ')}"] if option.enum
         end
 
         shell.say(group_name ? "#{group_name} options:" : "Options:")
@@ -531,7 +554,7 @@ class Bundler::Thor
       # Raises an error if the word given is a Bundler::Thor reserved word.
       def is_thor_reserved_word?(word, type) #:nodoc:
         return false unless THOR_RESERVED_WORDS.include?(word.to_s)
-        fail "#{word.inspect} is a Bundler::Thor reserved word and cannot be defined as #{type}"
+        raise "#{word.inspect} is a Bundler::Thor reserved word and cannot be defined as #{type}"
       end
 
       # Build an option and adds it to the given scope.
@@ -541,7 +564,7 @@ class Bundler::Thor
       # options<Hash>:: Described in both class_option and method_option.
       # scope<Hash>:: Options hash that is being built up
       def build_option(name, options, scope) #:nodoc:
-        scope[name] = Bundler::Thor::Option.new(name, options)
+        scope[name] = Bundler::Thor::Option.new(name, options.merge(:check_default_type => check_default_type?))
       end
 
       # Receives a hash of options, parse them and add to the scope. This is a
@@ -566,7 +589,7 @@ class Bundler::Thor
         elsif command = all_commands[name.to_s] # rubocop:disable AssignmentInCondition
           commands[name.to_s] = command.clone
         else
-          fail ArgumentError, "You supplied :for => #{name.inspect}, but the command #{name.inspect} could not be found."
+          raise ArgumentError, "You supplied :for => #{name.inspect}, but the command #{name.inspect} could not be found."
         end
       end
       alias_method :find_and_refresh_task, :find_and_refresh_command
@@ -649,7 +672,7 @@ class Bundler::Thor
 
       # SIGNATURE: The hook invoked by start.
       def dispatch(command, given_args, given_opts, config) #:nodoc:
-        fail NotImplementedError
+        raise NotImplementedError
       end
     end
   end

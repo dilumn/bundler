@@ -1,15 +1,14 @@
 # frozen_string_literal: true
-require "spec_helper"
 
-describe "bundle cache" do
-  describe "when there are only gemsources" do
+RSpec.describe "bundle cache" do
+  shared_examples_for "when there are only gemsources" do
     before :each do
       gemfile <<-G
         gem 'rack'
       G
 
-      system_gems "rack-1.0.0"
-      bundle :cache
+      system_gems "rack-1.0.0", :path => :bundle_path
+      bundle! :cache
     end
 
     it "copies the .gem file to vendor/cache" do
@@ -24,14 +23,14 @@ describe "bundle cache" do
         gem "omg"
       G
 
-      should_be_installed "omg 1.0.0"
+      expect(the_bundle).to include_gems "omg 1.0.0"
     end
 
     it "uses the cache as a source when installing gems with --local" do
-      system_gems []
+      system_gems [], :path => :bundle_path
       bundle "install --local"
 
-      should_be_installed("rack 1.0.0")
+      expect(the_bundle).to include_gems("rack 1.0.0")
     end
 
     it "does not reinstall gems from the cache if they exist on the system" do
@@ -43,11 +42,11 @@ describe "bundle cache" do
         gem "rack"
       G
 
-      should_be_installed("rack 1.0.0")
+      expect(the_bundle).to include_gems("rack 1.0.0")
     end
 
     it "does not reinstall gems from the cache if they exist in the bundle" do
-      system_gems "rack-1.0.0"
+      system_gems "rack-1.0.0", :path => :bundle_path
 
       gemfile <<-G
         gem "rack"
@@ -57,8 +56,8 @@ describe "bundle cache" do
         s.write "lib/rack.rb", "RACK = 'FAIL'"
       end
 
-      bundle "install --local"
-      should_be_installed("rack 1.0.0")
+      bundle! :install, :local => true
+      expect(the_bundle).to include_gems("rack 1.0.0")
     end
 
     it "creates a lockfile" do
@@ -74,6 +73,16 @@ describe "bundle cache" do
     end
   end
 
+  context "using system gems" do
+    before { bundle! "config path.system true" }
+    it_behaves_like "when there are only gemsources"
+  end
+
+  context "installing into a local path" do
+    before { bundle! "config path ./.bundle" }
+    it_behaves_like "when there are only gemsources"
+  end
+
   describe "when there is a built-in gem", :ruby => "2.0" do
     before :each do
       build_repo2 do
@@ -87,9 +96,10 @@ describe "bundle cache" do
       FileUtils.rm("#{system_gem_path}/cache/builtin_gem-1.0.2.gem")
     end
 
-    it "uses builtin gems" do
+    it "uses builtin gems when installing to system gems" do
+      bundle! "config path.system true"
       install_gemfile %(gem 'builtin_gem', '1.0.2')
-      should_be_installed("builtin_gem 1.0.2")
+      expect(the_bundle).to include_gems("builtin_gem 1.0.2")
     end
 
     it "caches remote and builtin gems" do
@@ -115,10 +125,12 @@ describe "bundle cache" do
       G
 
       bundle "install --local"
-      should_be_installed("builtin_gem_2 1.0.2")
+      expect(the_bundle).to include_gems("builtin_gem_2 1.0.2")
     end
 
     it "errors if the builtin gem isn't available to cache" do
+      bundle! "config path.system true"
+
       install_gemfile <<-G
         gem 'builtin_gem', '1.0.2'
       G
@@ -149,7 +161,7 @@ describe "bundle cache" do
       system_gems []
       bundle "install --local"
 
-      should_be_installed("rack 1.0.0", "foo 1.0")
+      expect(the_bundle).to include_gems("rack 1.0.0", "foo 1.0")
     end
 
     it "should not explode if the lockfile is not present" do
@@ -184,7 +196,7 @@ describe "bundle cache" do
 
     it "adds and removes when gems are updated" do
       update_repo2
-      bundle "update"
+      bundle "update", :all => bundle_update_requires_all?
       expect(cached_gem("rack-1.2")).to exist
       expect(cached_gem("rack-1.0.0")).not_to exist
     end
@@ -238,7 +250,7 @@ describe "bundle cache" do
         gem "platform_specific"
       G
 
-      expect(cached_gem("platform_specific-1.0-#{Gem::Platform.local}")).to exist
+      expect(cached_gem("platform_specific-1.0-#{Bundler.local_platform}")).to exist
       expect(cached_gem("platform_specific-1.0-java")).to exist
     end
 
@@ -286,7 +298,7 @@ describe "bundle cache" do
         gem "foo-bundler"
       G
 
-      should_be_installed "foo-bundler 1.0"
+      expect(the_bundle).to include_gems "foo-bundler 1.0"
     end
   end
 end
