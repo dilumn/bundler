@@ -205,12 +205,14 @@ module Bundler
       dependencies.sort_by do |dependency|
         dependency.all_sources = relevant_sources_for_vertex(activated.vertex_named(dependency.name))
         name = name_for(dependency)
+        vertex = activated.vertex_named(name)
         [
           @base_dg.vertex_named(name) ? 0 : 1,
-          activated.vertex_named(name).payload ? 0 : 1,
+          vertex.payload ? 0 : 1,
+          vertex.root? ? 0 : 1,
           amount_constrained(dependency),
           conflicts[name] ? 0 : 1,
-          activated.vertex_named(name).payload ? 0 : search_for(dependency).count,
+          vertex.payload ? 0 : search_for(dependency).count,
           self.class.platform_sort_key(dependency.__platform),
         ]
       end
@@ -307,6 +309,8 @@ module Bundler
         :solver_name => "Bundler",
         :possibility_type => "gem",
         :reduce_trees => lambda do |trees|
+          # bail out if tree size is too big for Array#combination to make any sense
+          return trees if trees.size > 15
           maximal = 1.upto(trees.size).map do |size|
             trees.map(&:last).flatten(1).combination(size).to_a
           end.flatten(1).select do |deps|
@@ -323,7 +327,7 @@ module Bundler
         :additional_message_for_conflict => lambda do |o, name, conflict|
           if name == "bundler"
             o << %(\n  Current Bundler version:\n    bundler (#{Bundler::VERSION}))
-            other_bundler_required = !conflict.requirement.requirement.satisfied_by?(Gem::Version.new Bundler::VERSION)
+            other_bundler_required = !conflict.requirement.requirement.satisfied_by?(Gem::Version.new(Bundler::VERSION))
           end
 
           if name == "bundler" && other_bundler_required

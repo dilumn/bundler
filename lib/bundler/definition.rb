@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "bundler/lockfile_parser"
-require "digest/sha1"
 require "set"
 
 module Bundler
@@ -205,19 +204,18 @@ module Bundler
     end
 
     def missing_specs?
-      missing = []
-      resolve.materialize(requested_dependencies, missing)
+      missing = missing_specs
       return false if missing.empty?
       Bundler.ui.debug "The definition is missing #{missing.map(&:full_name)}"
       true
     rescue BundlerError => e
-      Bundler.ui.debug "The definition is missing dependencies, failed to resolve & materialize locally (#{e})"
-      true
-    ensure
       @index = nil
       @resolve = nil
       @specs = nil
       @gem_version_promoter = nil
+
+      Bundler.ui.debug "The definition is missing dependencies, failed to resolve & materialize locally (#{e})"
+      true
     end
 
     def requested_specs
