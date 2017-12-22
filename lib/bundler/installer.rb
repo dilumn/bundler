@@ -17,10 +17,10 @@ module Bundler
 
     # Runs the install procedures for a specific Gemfile.
     #
-    # Firstly, this method will check to see if Bundler.bundle_path exists 
+    # Firstly, this method will check to see if Bundler.bundle_path exists
     # and if not then will create it. This is usually the location of gems
     # on the system, be it RVM or at a system path.
-    # 
+    #
     # Secondly, it checks if Bundler has been configured to be "frozen"
     # Frozen ensures that the Gemfile and the Gemfile.lock file are matching.
     # This stops a situation where a developer may update the Gemfile but may not run
@@ -28,7 +28,7 @@ module Bundler
     # If this file is not correctly updated then any other developer running
     # `bundle install` will potentially not install the correct gems.
     #
-    # Thirdly, Bundler checks if there are any dependencies specified in the Gemfile using 
+    # Thirdly, Bundler checks if there are any dependencies specified in the Gemfile using
     # Bundler::Environment#dependencies. If there are no dependencies specified then
     # Bundler returns a warning message stating so and this method returns.
     #
@@ -40,11 +40,11 @@ module Bundler
     # Fifthly, Bundler resolves the dependencies either through a cache of gems or by remote.
     # This then leads into the gems being installed, along with stubs for their executables,
     # but only if the --binstubs option has been passed or Bundler.options[:bin] has been set
-    # earlier. 
-    # 
+    # earlier.
+    #
     # Sixthly, a new Gemfile.lock is created from the installed gems to ensure that the next time
     # that a user runs `bundle install` they will receive any updates from this process.
-    # 
+    #
     # Finally: TODO add documentation for how the standalone process works.
     def run(options)
       # Create the BUNDLE_PATH directory
@@ -66,13 +66,13 @@ module Bundler
       end
 
       if Bundler.default_lockfile.exist? && !options["update"]
-        real_ui, Bundler.ui = Bundler.ui, Bundler::UI.new
-        begin
-          tmpdef = Definition.build(Bundler.default_gemfile, Bundler.default_lockfile, nil)
-          local = true unless tmpdef.new_platform? || tmpdef.missing_specs.any?
-        rescue BundlerError
+        local = Bundler.ui.silence do
+          begin
+            tmpdef = Definition.build(Bundler.default_gemfile, Bundler.default_lockfile, nil)
+            true unless tmpdef.new_platform? || tmpdef.missing_specs.any?
+          rescue BundlerError
+          end
         end
-        Bundler.ui = real_ui
       end
 
       # Since we are installing, we can resolve the definition
@@ -95,8 +95,6 @@ module Bundler
       generate_standalone(options[:standalone]) if options[:standalone]
     end
 
-  private
-
     def install_gem_from_spec(spec, standalone = false)
       # Download the gem to get the spec, because some specs that are returned
       # by rubygems.org are broken and wrong.
@@ -111,14 +109,16 @@ module Bundler
 
       # newline comes after installing, some gems say "with native extensions"
       Bundler.ui.info ""
-      if Bundler.settings[:bin]
-        standalone ? generate_standalone_bundler_executable_stubs(spec) : generate_bundler_executable_stubs(spec)
+      if Bundler.settings[:bin] && standalone
+        generate_standalone_bundler_executable_stubs(spec)
+      elsif Bundler.settings[:bin]
+        generate_bundler_executable_stubs(spec, :force => true)
       end
 
       FileUtils.rm_rf(Bundler.tmp)
     rescue Exception => e
       # install hook failed
-      raise e if e.is_a?(Bundler::InstallHookError)
+      raise e if e.is_a?(Bundler::InstallHookError) || e.is_a?(Bundler::SecurityError)
 
       # other failure, likely a native extension build failure
       Bundler.ui.info ""
@@ -130,29 +130,71 @@ module Bundler
       raise Bundler::InstallError, msg
     end
 
-    def generate_bundler_executable_stubs(spec)
-      bin_path = Bundler.bin_path
-      template = File.read(File.expand_path('../templates/Executable', __FILE__))
-      relative_gemfile_path = Bundler.default_gemfile.relative_path_from(bin_path)
-      ruby_command = Thor::Util.ruby_command
+    def generate_bundler_executable_stubs(spec, options = {})
+      if options[:binstubs_cmd] && spec.executables.empty?
+        options = {}
+        spec.runtime_dependencies.each do |dep|
+          bins = Bundler.definition.specs[dep].first.executables
+          options[dep.name] = bins unless bins.empty?
+        end
+        if options.any?
+          Bundler.ui.warn "#{spec.name} has no executables, but you may want " +
+            "one from a gem it depends on."
+          options.each{|name,bins| Bundler.ui.warn "  #{name} has: #{bins.join(', ')}" }
+        else
+          Bundler.ui.warn "There are no executables for the gem #{spec.name}."
+        end
+        return
+      end
 
+      # double-assignment to avoid warnings about variables that will be used by ERB
+      bin_path = bin_path = Bundler.bin_path
+      template = template = File.read(File.expand_path('../templates/Executable', __FILE__))
+      relative_gemfile_path = relative_gemfile_path = Bundler.default_gemfile.relative_path_from(bin_path)
+      ruby_command = ruby_command = Thor::Util.ruby_command
+
+      exists = []
       spec.executables.each do |executable|
         next if executable == "bundle"
-        File.open "#{bin_path}/#{executable}", 'w', 0755 do |f|
+
+        binstub_path = "#{bin_path}/#{executable}"
+        if File.exists?(binstub_path) && !options[:force]
+          exists << executable
+          next
+        end
+
+        File.open(binstub_path, 'w', 0777 & ~File.umask) do |f|
           f.puts ERB.new(template, nil, '-').result(binding)
         end
       end
+
+      if options[:binstubs_cmd] && exists.any?
+        case exists.size
+        when 1
+          Bundler.ui.warn "Skipped #{exists[0]} since it already exists."
+        when 2
+          Bundler.ui.warn "Skipped #{exists.join(' and ')} since they already exist."
+        else
+          items = exists[0...-1].empty? ? nil : exists[0...-1].join(', ')
+          skipped = [items, exists[-1]].compact.join(' and ')
+          Bundler.ui.warn "Skipped #{skipped} since they already exist."
+        end
+        Bundler.ui.warn "If you want to overwrite skipped stubs, use --force."
+      end
     end
 
+  private
+
     def generate_standalone_bundler_executable_stubs(spec)
+      # double-assignment to avoid warnings about variables that will be used by ERB
       bin_path = Bundler.bin_path
       template = File.read(File.expand_path('../templates/Executable.standalone', __FILE__))
-      ruby_command = Thor::Util.ruby_command
+      ruby_command = ruby_command = Thor::Util.ruby_command
 
       spec.executables.each do |executable|
         next if executable == "bundle"
-        standalone_path = Pathname(Bundler.settings[:path]).expand_path.relative_path_from(bin_path)
-        executable_path = Pathname(spec.full_gem_path).join(spec.bindir, executable).relative_path_from(bin_path)
+        standalone_path = standalone_path = Pathname(Bundler.settings[:path]).expand_path.relative_path_from(bin_path)
+        executable_path = executable_path = Pathname(spec.full_gem_path).join(spec.bindir, executable).relative_path_from(bin_path)
         File.open "#{bin_path}/#{executable}", 'w', 0755 do |f|
           f.puts ERB.new(template, nil, '-').result(binding)
         end
@@ -184,6 +226,7 @@ module Bundler
 
 
       File.open File.join(bundler_path, "setup.rb"), "w" do |file|
+        file.puts "require 'rbconfig'"
         file.puts "# ruby 1.8.7 doesn't define RUBY_ENGINE"
         file.puts "ruby_engine = defined?(RUBY_ENGINE) ? RUBY_ENGINE : 'ruby'"
         file.puts "ruby_version = RbConfig::CONFIG[\"ruby_version\"]"

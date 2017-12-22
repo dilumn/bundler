@@ -20,10 +20,11 @@ a number of methods used to describe the gem requirements.
 At the top of the `Gemfile`, add one line for each `Rubygems` source that
 might contain the gems listed in the `Gemfile`.
 
-    source "http://rubygems.org"
+    source "https://rubygems.org"
     source "http://gems.github.com"
 
-Each of these _source_s `MUST` be a valid Rubygems repository.
+Each of these _source_s `MUST` be a valid Rubygems repository. Sources are
+checked for gems following the heuristics described in [SOURCE PRIORITY][].
 
 ## RUBY (#ruby)
 
@@ -143,12 +144,16 @@ There are a number of `Gemfile` platforms:
     _ruby_ `AND` version 1.8
   * `ruby_19`:
     _ruby_ `AND` version 1.9
+  * `ruby_20`:
+    _ruby_ `AND` version 2.0
   * `mri`:
     Same as _ruby_, but not Rubinius
   * `mri_18`:
     _mri_ `AND` version 1.8
   * `mri_19`:
     _mri_ `AND` version 1.9
+  * `mri_20`:
+    _mri_ `AND` version 2.0
   * `rbx`:
     Same as _ruby_, but only Rubinius (not MRI)
   * `jruby`:
@@ -161,6 +166,8 @@ There are a number of `Gemfile` platforms:
     _mingw_ `AND` version 1.8
   * `mingw_19`:
     _mingw_ `AND` version 1.9
+  * `mingw_20`:
+    _mingw_ `AND` version 2.0
 
 As with groups, you can specify one or more platforms:
 
@@ -189,8 +196,7 @@ as they would for a normal gem.
 A git repository `SHOULD` have at least one file, at the root of the
 directory containing the gem, with the extension `.gemspec`. This file
 `MUST` contain a valid gem specification, as expected by the `gem build`
-command. It `MUST NOT` have any dependencies, other than on the files in
-the git repository itself and any built-in functionality of Ruby or Rubygems.
+command.
 
 If a git repository does not have a `.gemspec`, bundler will attempt to
 create one, but it will not contain any dependencies, executables, or

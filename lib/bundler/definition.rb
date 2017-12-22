@@ -5,7 +5,8 @@ module Bundler
   class Definition
     include GemHelpers
 
-    attr_reader :dependencies, :platforms, :sources, :ruby_version
+    attr_reader :dependencies, :platforms, :sources, :ruby_version,
+      :locked_deps
 
     def self.build(gemfile, lockfile, unlock)
       unlock ||= {}
@@ -207,8 +208,8 @@ module Bundler
       end
     end
 
-    def no_sources?
-      @sources.length == 1 && @sources.first.remotes.empty?
+    def rubygems_remotes
+      @sources.select{|s| s.is_a?(Source::Rubygems) }.map{|s| s.remotes }.flatten
     end
 
     def groups
@@ -225,7 +226,7 @@ module Bundler
       return if @lockfile_contents == contents
 
       if Bundler.settings[:frozen]
-        # TODO: Warn here if we got here.
+        Bundler.ui.error "Cannot write a changed lockfile while frozen."
         return
       end
 
@@ -248,7 +249,7 @@ module Bundler
           select  { |s| s.source == source }.
           # This needs to be sorted by full name so that
           # gems with the same name, but different platform
-          # are ordered consistantly
+          # are ordered consistently
           sort_by { |s| s.full_name }.
           each do |spec|
             next if spec.name == 'bundler'
@@ -402,6 +403,7 @@ module Bundler
         spec   = @dependencies.find { |s| s.name == k }
         source = spec && spec.source
         if source && source.respond_to?(:local_override!)
+          source.unlock! if @unlock[:gems].include?(spec.name)
           locals << [ source, source.local_override!(v) ]
         end
       end

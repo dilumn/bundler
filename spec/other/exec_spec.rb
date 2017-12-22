@@ -11,7 +11,7 @@ describe "bundle exec" do
     G
 
     bundle "exec rackup"
-    out.should == "0.9.1"
+    expect(out).to eq("0.9.1")
   end
 
   it "works when the bins are in ~/.bundle" do
@@ -20,7 +20,7 @@ describe "bundle exec" do
     G
 
     bundle "exec rackup"
-    out.should == "1.0.0"
+    expect(out).to eq("1.0.0")
   end
 
   it "works when running from a random directory" do
@@ -30,13 +30,37 @@ describe "bundle exec" do
 
     bundle "exec 'cd #{tmp('gems')} && rackup'"
 
-    out.should == "1.0.0"
+    expect(out).to eq("1.0.0")
   end
 
   it "works when exec'ing something else" do
     install_gemfile 'gem "rack"'
     bundle "exec echo exec"
-    out.should == "exec"
+    expect(out).to eq("exec")
+  end
+
+  it "accepts --verbose" do
+    install_gemfile 'gem "rack"'
+    bundle "exec --verbose echo foobar"
+    expect(out).to eq("foobar")
+  end
+
+  it "passes --verbose to command if it is given after the command" do
+    install_gemfile 'gem "rack"'
+    bundle "exec echo --verbose"
+    expect(out).to eq("--verbose")
+  end
+
+  it "can run a command named --verbose" do
+    install_gemfile 'gem "rack"'
+    File.open("--verbose", 'w') do |f|
+      f.puts "#!/bin/sh"
+      f.puts "echo foobar"
+    end
+    File.chmod(0744, "--verbose")
+    ENV['PATH'] = "."
+    bundle "exec -- --verbose"
+    expect(out).to eq("foobar")
   end
 
   it "handles different versions in different bundles" do
@@ -60,11 +84,11 @@ describe "bundle exec" do
 
     bundle "exec rackup"
 
-    out.should eq("0.9.1")
+    expect(out).to eq("0.9.1")
 
     Dir.chdir bundled_app2 do
       bundle "exec rackup"
-      out.should == "1.0.0"
+      expect(out).to eq("1.0.0")
     end
   end
 
@@ -80,7 +104,7 @@ describe "bundle exec" do
 
     bundle "exec rackup"
 
-    out.should eq("0.9.1")
+    expect(out).to eq("0.9.1")
     should_not_be_installed "rack_middleware 1.0"
   end
 
@@ -93,10 +117,10 @@ describe "bundle exec" do
     rubyopt = "-I#{bundler_path} -rbundler/setup #{rubyopt}"
 
     bundle "exec 'echo $RUBYOPT'"
-    out.should have_rubyopts(rubyopt)
+    expect(out).to have_rubyopts(rubyopt)
 
     bundle "exec 'echo $RUBYOPT'", :env => {"RUBYOPT" => rubyopt}
-    out.should have_rubyopts(rubyopt)
+    expect(out).to have_rubyopts(rubyopt)
   end
 
   it "errors nicely when the argument doesn't exist" do
@@ -105,9 +129,9 @@ describe "bundle exec" do
     G
 
     bundle "exec foobarbaz", :exitstatus => true
-    exitstatus.should eq(127)
-    out.should include("bundler: command not found: foobarbaz")
-    out.should include("Install missing gem executables with `bundle install`")
+    expect(exitstatus).to eq(127)
+    expect(out).to include("bundler: command not found: foobarbaz")
+    expect(out).to include("Install missing gem executables with `bundle install`")
   end
 
   it "errors nicely when the argument is not executable" do
@@ -117,8 +141,8 @@ describe "bundle exec" do
 
     bundle "exec touch foo"
     bundle "exec ./foo", :exitstatus => true
-    exitstatus.should eq(126)
-    out.should include("bundler: not executable: ./foo")
+    expect(exitstatus).to eq(126)
+    expect(out).to include("bundler: not executable: ./foo")
   end
 
   it "errors nicely when no arguments are passed" do
@@ -127,8 +151,8 @@ describe "bundle exec" do
     G
 
     bundle "exec", :exitstatus => true
-    # exitstatus.should eq(128)
-    out.should include("bundler: exec needs a command to run")
+    expect(exitstatus).to eq(128)
+    expect(out).to include("bundler: exec needs a command to run")
   end
 
   describe "with gem executables" do
@@ -141,14 +165,13 @@ describe "bundle exec" do
 
       it "works when unlocked" do
         bundle "exec 'cd #{tmp('gems')} && rackup'"
-        out.should == "1.0.0"
+        expect(out).to eq("1.0.0")
       end
 
       it "works when locked" do
-        bundle "lock"
         should_be_locked
         bundle "exec 'cd #{tmp('gems')} && rackup'"
-        out.should == "1.0.0"
+        expect(out).to eq("1.0.0")
       end
     end
 
@@ -165,15 +188,14 @@ describe "bundle exec" do
 
       it "works when unlocked" do
         bundle "exec fizz"
-        out.should == "1.0"
+        expect(out).to eq("1.0")
       end
 
       it "works when locked" do
-        bundle "lock"
         should_be_locked
 
         bundle "exec fizz"
-        out.should == "1.0"
+        expect(out).to eq("1.0")
       end
     end
 
@@ -190,14 +212,13 @@ describe "bundle exec" do
 
       it "works when unlocked" do
         bundle "exec fizz_git"
-        out.should == "1.0"
+        expect(out).to eq("1.0")
       end
 
       it "works when locked" do
-        bundle "lock"
         should_be_locked
         bundle "exec fizz_git"
-        out.should == "1.0"
+        expect(out).to eq("1.0")
       end
     end
 
@@ -214,16 +235,14 @@ describe "bundle exec" do
 
       it "works when unlocked" do
         bundle "exec fizz_no_gemspec"
-        out.should == "1.0"
+        expect(out).to eq("1.0")
       end
 
       it "works when locked" do
-        bundle "lock"
         should_be_locked
         bundle "exec fizz_no_gemspec"
-        out.should == "1.0"
+        expect(out).to eq("1.0")
       end
     end
-
   end
 end

@@ -26,7 +26,7 @@ module Spec
     def should_resolve_as(specs)
       got = resolve
       got = got.map { |s| s.full_name }.sort
-      got.should == specs.sort
+      expect(got).to eq(specs.sort)
     end
 
     def should_conflict_on(names)
@@ -34,7 +34,7 @@ module Spec
         got = resolve
         flunk "The resolve succeeded with: #{got.map { |s| s.full_name }.sort.inspect}"
       rescue Bundler::VersionConflict => e
-        Array(names).sort.should == e.conflicts.sort
+        expect(Array(names).sort).to eq(e.conflicts.sort)
       end
     end
 
@@ -105,6 +105,28 @@ module Spec
           gem "activemerchant", version do
             dep "activesupport", ">= #{version}"
           end
+        end
+      end
+    end
+
+    # Builder 3.1.4 will activate first, but if all
+    # goes well, it should resolve to 3.0.4
+    def a_conflict_index
+      build_index do
+        gem "builder", %w(3.0.4 3.1.4)
+        gem("grape", '0.2.6') do
+          dep "builder", ">= 0"
+        end
+
+        versions '3.2.8 3.2.9 3.2.10 3.2.11' do |version|
+          gem("activemodel", version) do
+            dep "builder", "~> 3.0.0"
+          end
+        end
+
+        gem("my_app", '1.0.0') do
+          dep "activemodel", ">= 0"
+          dep "grape", ">= 0"
         end
       end
     end

@@ -12,15 +12,18 @@ module Bundler
       :ruby     => Gem::Platform::RUBY,
       :ruby_18  => Gem::Platform::RUBY,
       :ruby_19  => Gem::Platform::RUBY,
+      :ruby_20  => Gem::Platform::RUBY,
       :mri      => Gem::Platform::RUBY,
       :mri_18   => Gem::Platform::RUBY,
       :mri_19   => Gem::Platform::RUBY,
+      :mri_20   => Gem::Platform::RUBY,
       :rbx      => Gem::Platform::RUBY,
       :jruby    => Gem::Platform::JAVA,
       :mswin    => Gem::Platform::MSWIN,
       :mingw    => Gem::Platform::MINGW,
       :mingw_18 => Gem::Platform::MINGW,
-      :mingw_19 => Gem::Platform::MINGW
+      :mingw_19 => Gem::Platform::MINGW,
+      :mingw_20 => Gem::Platform::MINGW
     }.freeze
 
     def initialize(name, version, options = {}, &blk)
@@ -78,16 +81,32 @@ module Bundler
 
   private
 
+    def on_18?
+      RUBY_VERSION =~ /^1\.8/
+    end
+
+    def on_19?
+      RUBY_VERSION =~ /^1\.9/
+    end
+
+    def on_20?
+      RUBY_VERSION =~ /^2\.0/
+    end
+
     def ruby?
       !mswin? && (!defined?(RUBY_ENGINE) || RUBY_ENGINE == "ruby" || RUBY_ENGINE == "rbx" || RUBY_ENGINE == "maglev")
     end
 
     def ruby_18?
-      ruby? && RUBY_VERSION < "1.9"
+      ruby? && on_18?
     end
 
     def ruby_19?
-      ruby? && RUBY_VERSION >= "1.9"
+      ruby? && on_19?
+    end
+
+    def ruby_20?
+      ruby? && on_20?
     end
 
     def mri?
@@ -95,11 +114,16 @@ module Bundler
     end
 
     def mri_18?
-      mri? && RUBY_VERSION < "1.9"
+      mri? && on_18?
     end
 
     def mri_19?
-      mri? && RUBY_VERSION >= "1.9"
+      mri? && on_19?
+    end
+
+
+    def mri_20?
+      mri? && on_20?
     end
 
     def rbx?
@@ -123,11 +147,15 @@ module Bundler
     end
 
     def mingw_18?
-      mingw? && RUBY_VERSION < "1.9"
+      mingw? && on_18?
     end
 
     def mingw_19?
-      mingw? && RUBY_VERSION >= "1.9"
+      mingw? && on_19?
+    end
+
+    def mingw_20?
+      mingw? && on_20?
     end
 
   end

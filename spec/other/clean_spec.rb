@@ -3,17 +3,17 @@ require "spec_helper"
 describe "bundle clean" do
   def should_have_gems(*gems)
     gems.each do |g|
-      vendored_gems("gems/#{g}").should exist
-      vendored_gems("specifications/#{g}.gemspec").should exist
-      vendored_gems("cache/#{g}.gem").should exist
+      expect(vendored_gems("gems/#{g}")).to exist
+      expect(vendored_gems("specifications/#{g}.gemspec")).to exist
+      expect(vendored_gems("cache/#{g}.gem")).to exist
     end
   end
 
   def should_not_have_gems(*gems)
     gems.each do |g|
-      vendored_gems("gems/#{g}").should_not exist
-      vendored_gems("specifications/#{g}.gemspec").should_not exist
-      vendored_gems("cache/#{g}.gem").should_not exist
+      expect(vendored_gems("gems/#{g}")).not_to exist
+      expect(vendored_gems("specifications/#{g}.gemspec")).not_to exist
+      expect(vendored_gems("cache/#{g}.gem")).not_to exist
     end
   end
 
@@ -36,12 +36,12 @@ describe "bundle clean" do
 
     bundle :clean
 
-    out.should eq("Removing foo (1.0)")
+    expect(out).to eq("Removing foo (1.0)")
 
     should_have_gems 'thin-1.0', 'rack-1.0.0'
     should_not_have_gems 'foo-1.0'
 
-    vendored_gems("bin/rackup").should exist
+    expect(vendored_gems("bin/rackup")).to exist
   end
 
   it "removes old version of gem if unused" do
@@ -64,12 +64,12 @@ describe "bundle clean" do
 
     bundle :clean
 
-    out.should eq("Removing rack (0.9.1)")
+    expect(out).to eq("Removing rack (0.9.1)")
 
     should_have_gems 'foo-1.0', 'rack-1.0.0'
     should_not_have_gems 'rack-0.9.1'
 
-    vendored_gems("bin/rackup").should exist
+    expect(vendored_gems("bin/rackup")).to exist
   end
 
   it "removes new version of gem if unused" do
@@ -92,15 +92,15 @@ describe "bundle clean" do
 
     bundle :clean
 
-    out.should eq("Removing rack (1.0.0)")
+    expect(out).to eq("Removing rack (1.0.0)")
 
     should_have_gems 'foo-1.0', 'rack-0.9.1'
     should_not_have_gems 'rack-1.0.0'
 
-    vendored_gems("bin/rackup").should exist
+    expect(vendored_gems("bin/rackup")).to exist
   end
 
-  it "remove gems in bundle without groups" do
+  it "removes gems in bundle without groups" do
     gemfile <<-G
       source "file://#{gem_repo1}"
 
@@ -115,12 +115,12 @@ describe "bundle clean" do
     bundle "install --without test_group"
     bundle :clean
 
-    out.should eq("Removing rack (1.0.0)")
+    expect(out).to eq("Removing rack (1.0.0)")
 
     should_have_gems 'foo-1.0'
     should_not_have_gems 'rack-1.0.0'
 
-    vendored_gems("bin/rackup").should_not exist
+    expect(vendored_gems("bin/rackup")).to_not exist
   end
 
   it "does not remove cached git dir if it's being used" do
@@ -142,7 +142,7 @@ describe "bundle clean" do
     bundle :clean
 
     digest = Digest::SHA1.hexdigest(git_path.to_s)
-    vendored_gems("cache/bundler/git/foo-1.0-#{digest}").should exist
+    expect(vendored_gems("cache/bundler/git/foo-1.0-#{digest}")).to exist
   end
 
   it "removes unused git gems" do
@@ -170,16 +170,16 @@ describe "bundle clean" do
 
     bundle :clean
 
-    out.should eq("Removing foo (#{revision[0..11]})")
+    expect(out).to eq("Removing foo (#{revision[0..11]})")
 
-    vendored_gems("gems/rack-1.0.0").should exist
-    vendored_gems("bundler/gems/foo-#{revision[0..11]}").should_not exist
+    expect(vendored_gems("gems/rack-1.0.0")).to exist
+    expect(vendored_gems("bundler/gems/foo-#{revision[0..11]}")).not_to exist
     digest = Digest::SHA1.hexdigest(git_path.to_s)
-    vendored_gems("cache/bundler/git/foo-#{digest}").should_not exist
+    expect(vendored_gems("cache/bundler/git/foo-#{digest}")).not_to exist
 
-    vendored_gems("specifications/rack-1.0.0.gemspec").should exist
+    expect(vendored_gems("specifications/rack-1.0.0.gemspec")).to exist
 
-    vendored_gems("bin/rackup").should exist
+    expect(vendored_gems("bin/rackup")).to exist
   end
 
   it "removes old git gems" do
@@ -203,15 +203,15 @@ describe "bundle clean" do
     bundle "update"
     bundle :clean
 
-    out.should eq("Removing foo-bar (#{revision[0..11]})")
+    expect(out).to eq("Removing foo-bar (#{revision[0..11]})")
 
-    vendored_gems("gems/rack-1.0.0").should exist
-    vendored_gems("bundler/gems/foo-bar-#{revision[0..11]}").should_not exist
-    vendored_gems("bundler/gems/foo-bar-#{revision2[0..11]}").should exist
+    expect(vendored_gems("gems/rack-1.0.0")).to exist
+    expect(vendored_gems("bundler/gems/foo-bar-#{revision[0..11]}")).not_to exist
+    expect(vendored_gems("bundler/gems/foo-bar-#{revision2[0..11]}")).to exist
 
-    vendored_gems("specifications/rack-1.0.0.gemspec").should exist
+    expect(vendored_gems("specifications/rack-1.0.0.gemspec")).to exist
 
-    vendored_gems("bin/rackup").should exist
+    expect(vendored_gems("bin/rackup")).to exist
   end
 
   it "does not remove nested gems in a git repo" do
@@ -227,9 +227,9 @@ describe "bundle clean" do
 
     bundle "install --path vendor/bundle"
     bundle :clean
-    out.should eq("")
+    expect(out).to eq("")
 
-    vendored_gems("bundler/gems/rails-#{revision[0..11]}").should exist
+    expect(vendored_gems("bundler/gems/rails-#{revision[0..11]}")).to exist
   end
 
   it "does not remove git sources that are in without groups" do
@@ -251,10 +251,10 @@ describe "bundle clean" do
 
     bundle :clean
 
-    out.should eq("")
-    vendored_gems("bundler/gems/foo-#{revision[0..11]}").should exist
+    expect(out).to eq("")
+    expect(vendored_gems("bundler/gems/foo-#{revision[0..11]}")).to exist
     digest = Digest::SHA1.hexdigest(git_path.to_s)
-    vendored_gems("cache/bundler/git/foo-#{digest}").should_not exist
+    expect(vendored_gems("cache/bundler/git/foo-#{digest}")).to_not exist
   end
 
   it "does not blow up when using without groups" do
@@ -271,9 +271,8 @@ describe "bundle clean" do
     bundle "install --path vendor/bundle --without development"
 
     bundle :clean, :exitstatus => true
-    exitstatus.should == 0
+    expect(exitstatus).to eq(0)
   end
-
 
   it "displays an error when used without --path" do
     install_gemfile <<-G
@@ -284,12 +283,12 @@ describe "bundle clean" do
 
     bundle :clean, :exitstatus => true
 
-    exitstatus.should eq(1)
-    out.should == "Can only use bundle clean when --path is set or --force is set"
+    expect(exitstatus).to eq(1)
+    expect(out).to eq("Can only use bundle clean when --path is set or --force is set")
   end
 
   # handling bundle clean upgrade path from the pre's
-  it "removes .gem/.gemspec file even if there's no corresponding gem dir is already moved" do
+  it "removes .gem/.gemspec file even if there's no corresponding gem dir" do
     gemfile <<-G
       source "file://#{gem_repo1}"
 
@@ -315,7 +314,7 @@ describe "bundle clean" do
     should_not_have_gems 'thin-1.0', 'rack-1.0'
     should_have_gems 'foo-1.0'
 
-    vendored_gems("bin/rackup").should_not exist
+    expect(vendored_gems("bin/rackup")).not_to exist
   end
 
   it "does not call clean automatically when using system gems" do
@@ -335,8 +334,8 @@ describe "bundle clean" do
     bundle :install
 
     sys_exec "gem list"
-    out.should include("rack (1.0.0)")
-    out.should include("thin (1.0)")
+    expect(out).to include("rack (1.0.0)")
+    expect(out).to include("thin (1.0)")
   end
 
   it "--clean should override the bundle setting on install" do
@@ -432,7 +431,7 @@ describe "bundle clean" do
     bundle :update
 
     sys_exec "gem list"
-    out.should include("foo (1.0.1, 1.0)")
+    expect(out).to include("foo (1.0.1, 1.0)")
   end
 
   it "cleans system gems when --force is used" do
@@ -452,10 +451,10 @@ describe "bundle clean" do
     bundle :install
     bundle "clean --force"
 
-    out.should eq("Removing foo (1.0)")
+    expect(out).to eq("Removing foo (1.0)")
     sys_exec "gem list"
-    out.should_not include("foo (1.0)")
-    out.should include("rack (1.0.0)")
+    expect(out).not_to include("foo (1.0)")
+    expect(out).to include("rack (1.0.0)")
   end
 
   it "cleans git gems with a 7 length git revision" do
@@ -483,9 +482,9 @@ describe "bundle clean" do
 
     bundle :clean
 
-    out.should_not include("Removing foo (1.0 #{revision[0..6]})")
+    expect(out).not_to include("Removing foo (1.0 #{revision[0..6]})")
 
-    vendored_gems("bundler/gems/foo-1.0-#{revision[0..6]}").should exist
+    expect(vendored_gems("bundler/gems/foo-1.0-#{revision[0..6]}")).to exist
   end
 
   it "when using --force on system gems, it doesn't remove binaries" do
@@ -508,8 +507,8 @@ describe "bundle clean" do
 
     sys_status "foo"
 
-    exitstatus.should eq(0)
-    out.should eq("1.0")
+    expect(exitstatus).to eq(0)
+    expect(out).to eq("1.0")
   end
 
   it "doesn't blow up on path gems without a .gempsec" do
@@ -530,6 +529,64 @@ describe "bundle clean" do
     bundle "install --path vendor/bundle"
     bundle :clean, :exitstatus => true
 
-    exitstatus.should eq(0)
+    expect(exitstatus).to eq(0)
+  end
+
+  it "doesn't remove gems in dry-run mode" do
+    gemfile <<-G
+      source "file://#{gem_repo1}"
+
+      gem "thin"
+      gem "foo"
+    G
+
+    bundle "install --path vendor/bundle --no-clean"
+
+    gemfile <<-G
+      source "file://#{gem_repo1}"
+
+      gem "thin"
+    G
+
+    bundle :install
+
+    bundle "clean --dry-run"
+
+    expect(out).not_to eq("Removing foo (1.0)")
+    expect(out).to eq("Would have removed foo (1.0)")
+
+    should_have_gems 'thin-1.0', 'rack-1.0.0', 'foo-1.0'
+
+    expect(vendored_gems("bin/rackup")).to exist
+  end
+
+  it "doesn't store dry run as a config setting" do
+    gemfile <<-G
+      source "file://#{gem_repo1}"
+
+      gem "thin"
+      gem "foo"
+    G
+
+    bundle "install --path vendor/bundle --no-clean"
+    bundle "config dry_run false"
+
+    gemfile <<-G
+      source "file://#{gem_repo1}"
+
+      gem "thin"
+    G
+
+    bundle :install
+
+    bundle "clean"
+
+    expect(out).to eq("Removing foo (1.0)")
+    expect(out).not_to eq("Would have removed foo (1.0)")
+
+    should_have_gems 'thin-1.0', 'rack-1.0.0'
+    should_not_have_gems 'foo-1.0'
+
+    expect(vendored_gems("bin/rackup")).to exist
   end
 end

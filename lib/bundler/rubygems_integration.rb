@@ -1,8 +1,17 @@
+require 'rubygems'
+# rubygems master requires UI for ConfigFile but doesn't require it
+require 'rubygems/user_interaction'
+require 'rubygems/config_file'
+
 module Bundler
   class RubygemsIntegration
-    def initialize
-      # Work around a RubyGems bug
-      configuration
+
+    def build_args
+      Gem::Command.build_args
+    end
+
+    def build_args=(args)
+      Gem::Command.build_args = args
     end
 
     def loaded_specs(name)
@@ -23,6 +32,10 @@ module Bundler
 
     def configuration
       Gem.configuration
+    rescue Gem::SystemExitException => e
+      Bundler.ui.error "#{e.class}: #{e.message}"
+      Bundler.ui.trace e
+      raise Gem::SystemExitException
     end
 
     def ruby_engine
@@ -38,6 +51,11 @@ module Bundler
     end
 
     def sources=(val)
+      # Gem.configuration creates a new Gem::ConfigFile, which by default will read ~/.gemrc
+      # If that file exists, its settings (including sources) will overwrite the values we
+      # are about to set here. In order to avoid that, we force memoizing the config file now.
+      configuration
+
       Gem.sources = val
     end
 
@@ -73,10 +91,6 @@ module Bundler
       Gem.bin_path(gem, bin, ver)
     end
 
-    def refresh
-      Gem.refresh
-    end
-
     def preserve_paths
       # this is a no-op outside of Rubygems 1.8
       yield
@@ -87,25 +101,78 @@ module Bundler
     end
 
     def fetch_specs(all, pre, &blk)
-      Gem::SpecFetcher.new.list(all, pre).each(&blk)
+      specs = Gem::SpecFetcher.new.list(all, pre)
+      specs.each { yield } if block_given?
+      specs
+    end
+
+    def fetch_prerelease_specs
+      fetch_specs(false, true)
+    rescue Gem::RemoteFetcher::FetchError
+      [] # if we can't download them, there aren't any
+    end
+
+    def fetch_all_remote_specs
+      # Fetch all specs, minus prerelease specs
+      spec_list = fetch_specs(true, false)
+      # Then fetch the prerelease specs
+      fetch_prerelease_specs.each {|k, v| spec_list[k] += v }
+
+      return spec_list
     end
 
     def with_build_args(args)
-      old_args = Gem::Command.build_args
+      old_args = self.build_args
       begin
-        Gem::Command.build_args = args
+        self.build_args = args
         yield
       ensure
-        Gem::Command.build_args = old_args
+        self.build_args = old_args
       end
     end
 
-    def spec_from_gem(path)
-      Gem::Format.from_file_by_path(path).spec
+    def gem_from_path(path, policy = nil)
+      require 'rubygems/format'
+      Gem::Format.from_file_by_path(path, policy)
+    end
+
+    def spec_from_gem(path, policy = nil)
+      require 'rubygems/security'
+      gem_from_path(path, Gem::Security::Policies[policy]).spec
+    rescue Gem::Package::FormatError
+      raise GemspecError, "Could not read gem at #{path}. It may be corrupted."
+    rescue Exception, Gem::Exception, Gem::Security::Exception => e
+      if e.is_a?(Gem::Security::Exception) ||
+          e.message =~ /unknown trust policy|unsigned gem/i ||
+          e.message =~ /couldn't verify (meta)?data signature/i
+        raise SecurityError,
+          "The gem #{File.basename(path, '.gem')} can't be installed because " \
+          "the security policy didn't allow it, with the message: #{e.message}"
+      else
+        raise e
+      end
+    end
+
+    def build(spec, skip_validation = false)
+      require 'rubygems/builder'
+      Gem::Builder.new(spec).build
+    end
+
+    def build_gem(gem_dir, spec)
+      Dir.chdir(gem_dir) { build(spec) }
     end
 
     def download_gem(spec, uri, path)
       Gem::RemoteFetcher.fetcher.download(spec, uri, path)
+    end
+
+    def security_policies
+      @security_policies ||= begin
+        require 'rubygems/security'
+        Gem::Security::Policies
+      rescue LoadError, NameError
+        {}
+      end
     end
 
     def reverse_rubygems_kernel_mixin
@@ -158,16 +225,6 @@ module Bundler
         end
 
         true
-      end
-    end
-
-    if defined? ::Deprecate
-      Deprecate = ::Deprecate
-    elsif defined? Gem::Deprecate
-      Deprecate = Gem::Deprecate
-    else
-      class Deprecate
-        def skip_during; yield; end
       end
     end
 
@@ -341,7 +398,7 @@ module Bundler
       end
     end
 
-    # Rubygems 1.8.5
+    # Rubygems 1.8.5-1.8.19
     class Modern < RubygemsIntegration
       def stub_rubygems(specs)
         Gem::Specification.all = specs
@@ -374,9 +431,80 @@ module Bundler
       end
     end
 
+    # Rubygems 1.8.20+
+    class MoreModern < Modern
+      # Rubygems 1.8.20 and adds the skip_validation parameter, so that's
+      # when we start passing it through.
+      def build(spec, skip_validation = false)
+        require 'rubygems/builder'
+        Gem::Builder.new(spec).build(skip_validation)
+      end
+    end
+
+    # Rubygems 2.0
+    class Future < RubygemsIntegration
+      def stub_rubygems(specs)
+        Gem::Specification.all = specs
+
+        Gem.post_reset do
+          Gem::Specification.all = specs
+        end
+      end
+
+      def all_specs
+        Gem::Specification.to_a
+      end
+
+      def find_name(name)
+        Gem::Specification.find_all_by_name name
+      end
+
+      def fetch_specs(source, name)
+        path = source + "#{name}.#{Gem.marshal_version}.gz"
+        string = Gem::RemoteFetcher.fetcher.fetch_path(path)
+        Bundler.load_marshal(string)
+      rescue Gem::RemoteFetcher::FetchError => e
+        # it's okay for prerelease to fail
+        raise e unless name == "prerelease_specs"
+      end
+
+      def fetch_all_remote_specs
+        # Since SpecFetcher now returns NameTuples, we just fetch directly
+        # and unmarshal the array ourselves.
+        hash = {}
+
+        Gem.sources.each do |source|
+          source = URI.parse(source.to_s) unless source.is_a?(URI)
+          hash[source] = fetch_specs(source, "specs")
+
+          pres = fetch_specs(source, "prerelease_specs")
+          hash[source].push(*pres) if pres && !pres.empty?
+        end
+
+        hash
+      end
+
+      def gem_from_path(path, policy = nil)
+        require 'rubygems/package'
+        p = Gem::Package.new(path)
+        p.security_policy = policy if policy
+        return p
+      end
+
+      def build(spec, skip_validation = false)
+        require 'rubygems/package'
+        Gem::Package.build(spec, skip_validation)
+      end
+
+    end
+
   end
 
-  if Gem::Version.new(Gem::VERSION) >= Gem::Version.new('1.8.5')
+  if Gem::Version.new(Gem::VERSION) >= Gem::Version.new('1.99.99')
+    @rubygems = RubygemsIntegration::Future.new
+  elsif Gem::Version.new(Gem::VERSION) >= Gem::Version.new('1.8.20')
+    @rubygems = RubygemsIntegration::MoreModern.new
+  elsif Gem::Version.new(Gem::VERSION) >= Gem::Version.new('1.8.5')
     @rubygems = RubygemsIntegration::Modern.new
   elsif Gem::Version.new(Gem::VERSION) >= Gem::Version.new('1.8.0')
     @rubygems = RubygemsIntegration::AlmostModern.new

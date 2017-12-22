@@ -12,8 +12,6 @@ module Spec
       end
       FileUtils.mkdir_p(tmp)
       FileUtils.mkdir_p(home)
-      Gem.sources = ["file://#{gem_repo1}/"]
-      # Gem.configuration.write
     end
 
     attr_reader :out, :err, :exitstatus
@@ -75,6 +73,32 @@ module Spec
       end.join
 
       cmd = "#{env}#{Gem.ruby} -I#{lib} #{requires_str} #{bundle_bin} #{cmd}#{args}"
+
+      if exitstatus
+        sys_status(cmd)
+      else
+        sys_exec(cmd, expect_err){|i| yield i if block_given? }
+      end
+    end
+
+    def bundle_ruby(options = {})
+      expect_err  = options.delete(:expect_err)
+      exitstatus = options.delete(:exitstatus)
+      options["no-color"] = true unless options.key?("no-color")
+
+      bundle_bin = File.expand_path('../../../bin/bundle_ruby', __FILE__)
+
+      requires = options.delete(:requires) || []
+      requires << File.expand_path('../fakeweb/'+options.delete(:fakeweb)+'.rb', __FILE__) if options.key?(:fakeweb)
+      requires << File.expand_path('../artifice/'+options.delete(:artifice)+'.rb', __FILE__) if options.key?(:artifice)
+      requires_str = requires.map{|r| "-r#{r}"}.join(" ")
+
+      env = (options.delete(:env) || {}).map{|k,v| "#{k}='#{v}' "}.join
+      args = options.map do |k,v|
+        v == true ? " --#{k}" : " --#{k} #{v}" if v
+      end.join
+
+      cmd = "#{env}#{Gem.ruby} -I#{lib} #{requires_str} #{bundle_bin}"
 
       if exitstatus
         sys_status(cmd)
@@ -148,7 +172,7 @@ module Spec
       str  = args.shift || ""
       path.dirname.mkpath
       File.open(path.to_s, 'w') do |f|
-        f.puts str
+        f.puts strip_whitespace(str)
       end
     end
 
@@ -156,13 +180,8 @@ module Spec
       path = bundled_app("Gemfile.lock")
       path = args.shift if Pathname === args.first
       str  = args.shift || ""
-
-      # Trim the leading spaces
-      spaces = str[/\A\s+/, 0] || ""
-      str.gsub!(/^#{spaces}/, '')
-
       File.open(path.to_s, 'w') do |f|
-        f.puts str
+        f.puts strip_whitespace(str)
       end
     end
 

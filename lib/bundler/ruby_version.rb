@@ -67,12 +67,16 @@ module Bundler
     end
 
     def version
-      RUBY_VERSION
+      RUBY_VERSION.dup
+    end
+
+    def gem_version
+      @gem_version ||= Gem::Version.new(version)
     end
 
     def engine
       if defined?(RUBY_ENGINE)
-        RUBY_ENGINE
+        RUBY_ENGINE.dup
       else
         # not defined in ruby 1.8.7
         "ruby"
@@ -82,11 +86,11 @@ module Bundler
     def engine_version
       case engine
       when "ruby"
-        RUBY_VERSION
+        RUBY_VERSION.dup
       when "rbx"
-        Rubinius::VERSION
+        Rubinius::VERSION.dup
       when "jruby"
-        JRUBY_VERSION
+        JRUBY_VERSION.dup
       else
         raise BundlerError, "That RUBY_ENGINE is not recognized"
         nil

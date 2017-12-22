@@ -12,7 +12,7 @@ describe "bundle platform" do
       G
 
       bundle "platform"
-      out.should == <<-G.chomp
+      expect(out).to eq(<<-G.chomp)
 Your platform is: #{RUBY_PLATFORM}
 
 Your app has gems that work on these platforms:
@@ -33,7 +33,7 @@ G
       G
 
       bundle "platform"
-      out.should == <<-G.chomp
+      expect(out).to eq(<<-G.chomp)
 Your platform is: #{RUBY_PLATFORM}
 
 Your app has gems that work on these platforms:
@@ -53,7 +53,7 @@ G
       G
 
       bundle "platform"
-      out.should == <<-G.chomp
+      expect(out).to eq(<<-G.chomp)
 Your platform is: #{RUBY_PLATFORM}
 
 Your app has gems that work on these platforms:
@@ -78,10 +78,10 @@ G
 
       bundle "platform --ruby"
 
-      out.should eq("ruby 1.9.3")
+      expect(out).to eq("ruby 1.9.3")
     end
 
-    it "engine defaults to MRI" do
+    it "defaults to MRI" do
       gemfile <<-G
         source "file://#{gem_repo1}"
         ruby "1.9.3"
@@ -91,7 +91,7 @@ G
 
       bundle "platform --ruby"
 
-      out.should eq("ruby 1.9.3")
+      expect(out).to eq("ruby 1.9.3")
     end
 
     it "handles jruby" do
@@ -104,7 +104,7 @@ G
 
       bundle "platform --ruby"
 
-      out.should eq("ruby 1.8.7 (jruby 1.6.5)")
+      expect(out).to eq("ruby 1.8.7 (jruby 1.6.5)")
     end
 
     it "handles rbx" do
@@ -117,7 +117,7 @@ G
 
       bundle "platform --ruby"
 
-      out.should eq("ruby 1.8.7 (rbx 1.2.4)")
+      expect(out).to eq("ruby 1.8.7 (rbx 1.2.4)")
     end
 
     it "raises an error if engine is used but engine version is not" do
@@ -130,7 +130,7 @@ G
 
       bundle "platform", :exitstatus => true
 
-      exitstatus.should_not == 0
+      expect(exitstatus).not_to eq(0)
     end
 
     it "raises an error if engine_version is used but engine is not" do
@@ -143,10 +143,10 @@ G
 
       bundle "platform", :exitstatus => true
 
-      exitstatus.should_not == 0
+      expect(exitstatus).not_to eq(0)
     end
 
-    it "raises an error if engine version doesn't match ruby version for mri" do
+    it "raises an error if engine version doesn't match ruby version for MRI" do
       gemfile <<-G
         source "file://#{gem_repo1}"
         ruby "1.8.7", :engine => 'ruby', :engine_version => '1.2.4'
@@ -156,7 +156,7 @@ G
 
       bundle "platform", :exitstatus => true
 
-      exitstatus.should_not == 0
+      expect(exitstatus).not_to eq(0)
     end
 
     it "should print if no ruby version is specified" do
@@ -169,7 +169,7 @@ G
       bundle "platform --ruby"
       puts err
 
-      out.should eq("No ruby version specified")
+      expect(out).to eq("No ruby version specified")
     end
   end
 
@@ -180,18 +180,18 @@ G
   let(:engine_version_incorrect) { "ruby \"#{RUBY_VERSION}\", :engine => \"#{local_ruby_engine}\", :engine_version => \"#{not_local_engine_version}\"" }
 
   def should_be_ruby_version_incorrect(opts = {:exitstatus => true})
-    exitstatus.should eq(18) if opts[:exitstatus]
-    out.should be_include("Your Ruby version is #{RUBY_VERSION}, but your Gemfile specified #{not_local_ruby_version}")
+    expect(exitstatus).to eq(18) if opts[:exitstatus]
+    expect(out).to be_include("Your Ruby version is #{RUBY_VERSION}, but your Gemfile specified #{not_local_ruby_version}")
   end
 
   def should_be_engine_incorrect(opts = {:exitstatus => true})
-    exitstatus.should eq(18) if opts[:exitstatus]
-    out.should be_include("Your Ruby engine is #{local_ruby_engine}, but your Gemfile specified #{not_local_tag}")
+    expect(exitstatus).to eq(18) if opts[:exitstatus]
+    expect(out).to be_include("Your Ruby engine is #{local_ruby_engine}, but your Gemfile specified #{not_local_tag}")
   end
 
   def should_be_engine_version_incorrect(opts = {:exitstatus => true})
-    exitstatus.should eq(18) if opts[:exitstatus]
-    out.should be_include("Your #{local_ruby_engine} version is #{local_engine_version}, but your Gemfile specified #{local_ruby_engine} #{not_local_engine_version}")
+    expect(exitstatus).to eq(18) if opts[:exitstatus]
+    expect(out).to be_include("Your #{local_ruby_engine} version is #{local_engine_version}, but your Gemfile specified #{local_ruby_engine} #{not_local_engine_version}")
   end
 
   context "bundle install" do
@@ -203,7 +203,7 @@ G
         #{ruby_version_correct}
       G
 
-      bundled_app('Gemfile.lock').should exist
+      expect(bundled_app('Gemfile.lock')).to exist
     end
 
     it "installs fine with any engine" do
@@ -215,7 +215,7 @@ G
           #{ruby_version_correct_engineless}
         G
 
-        bundled_app('Gemfile.lock').should exist
+        expect(bundled_app('Gemfile.lock')).to exist
       end
     end
 
@@ -227,7 +227,7 @@ G
         #{ruby_version_incorrect}
       G
 
-      bundled_app('Gemfile.lock').should_not exist
+      expect(bundled_app('Gemfile.lock')).not_to exist
       should_be_ruby_version_incorrect
     end
 
@@ -239,7 +239,7 @@ G
         #{engine_incorrect}
       G
 
-      bundled_app('Gemfile.lock').should_not exist
+      expect(bundled_app('Gemfile.lock')).not_to exist
       should_be_engine_incorrect
     end
 
@@ -252,7 +252,7 @@ G
           #{engine_version_incorrect}
         G
 
-        bundled_app('Gemfile.lock').should_not exist
+        expect(bundled_app('Gemfile.lock')).not_to exist
         should_be_engine_version_incorrect
       end
     end
@@ -273,8 +273,8 @@ G
       G
 
       bundle :check, :exitstatus => true
-      exitstatus.should eq(0)
-      out.should == "The Gemfile's dependencies are satisfied"
+      expect(exitstatus).to eq(0)
+      expect(out).to eq("The Gemfile's dependencies are satisfied")
     end
 
     it "checks fine with any engine" do
@@ -292,8 +292,8 @@ G
         G
 
         bundle :check, :exitstatus => true
-        exitstatus.should eq(0)
-        out.should == "The Gemfile's dependencies are satisfied"
+        expect(exitstatus).to eq(0)
+        expect(out).to eq("The Gemfile's dependencies are satisfied")
       end
     end
 
@@ -464,7 +464,7 @@ G
       G
 
       bundle "show rails"
-      out.should == default_bundle_path('gems', 'rails-2.3.2').to_s
+      expect(out).to eq(default_bundle_path('gems', 'rails-2.3.2').to_s)
     end
 
     it "prints path if ruby version is correct for any engine" do
@@ -477,7 +477,7 @@ G
         G
 
         bundle "show rails"
-        out.should == default_bundle_path('gems', 'rails-2.3.2').to_s
+        expect(out).to eq(default_bundle_path('gems', 'rails-2.3.2').to_s)
       end
     end
 
@@ -537,7 +537,7 @@ G
       G
 
       bundle :cache
-      bundled_app("vendor/cache/rack-1.0.0.gem").should exist
+      expect(bundled_app("vendor/cache/rack-1.0.0.gem")).to exist
     end
 
     it "copies the .gem file to vendor/cache when ruby version matches for any engine" do
@@ -549,7 +549,7 @@ G
         G
 
         bundle :cache
-        bundled_app("vendor/cache/rack-1.0.0.gem").should exist
+        expect(bundled_app("vendor/cache/rack-1.0.0.gem")).to exist
       end
     end
 
@@ -606,7 +606,7 @@ G
       G
 
       bundle :pack
-      bundled_app("vendor/cache/rack-1.0.0.gem").should exist
+      expect(bundled_app("vendor/cache/rack-1.0.0.gem")).to exist
     end
 
     it "copies the .gem file to vendor/cache when ruby version matches any engine" do
@@ -618,7 +618,7 @@ G
         G
 
         bundle :pack
-        bundled_app("vendor/cache/rack-1.0.0.gem").should exist
+        expect(bundled_app("vendor/cache/rack-1.0.0.gem")).to exist
       end
     end
 
@@ -671,7 +671,7 @@ G
       G
 
       bundle "exec rackup"
-      out.should == "0.9.1"
+      expect(out).to eq("0.9.1")
     end
 
     it "activates the correct gem when ruby version matches any engine" do
@@ -683,7 +683,7 @@ G
         G
 
         bundle "exec rackup"
-        out.should == "0.9.1"
+        expect(out).to eq("0.9.1")
       end
     end
 
@@ -747,7 +747,7 @@ G
         input.puts("puts RACK")
         input.puts("exit")
       end
-      out.should include("0.9.1")
+      expect(out).to include("0.9.1")
     end
 
     it "starts IRB with the default group loaded when ruby version matches any engine" do
@@ -765,7 +765,7 @@ G
           input.puts("puts RACK")
           input.puts("exit")
         end
-        out.should include("0.9.1")
+        expect(out).to include("0.9.1")
       end
     end
 
@@ -837,7 +837,7 @@ G
       FileUtils.rm(bundled_app("Gemfile.lock"))
 
       run "1"
-      bundled_app("Gemfile.lock").should exist
+      expect(bundled_app("Gemfile.lock")).to exist
     end
 
     it "makes a Gemfile.lock if setup succeeds for any engine" do
@@ -855,7 +855,7 @@ G
         FileUtils.rm(bundled_app("Gemfile.lock"))
 
         run "1"
-        bundled_app("Gemfile.lock").should exist
+        expect(bundled_app("Gemfile.lock")).to exist
       end
     end
 
@@ -883,7 +883,7 @@ G
         end
       R
 
-      bundled_app("Gemfile.lock").should_not exist
+      expect(bundled_app("Gemfile.lock")).not_to exist
       should_be_ruby_version_incorrect(:exitstatus => false)
     end
 
@@ -911,7 +911,7 @@ G
         end
       R
 
-      bundled_app("Gemfile.lock").should_not exist
+      expect(bundled_app("Gemfile.lock")).not_to exist
       should_be_engine_incorrect(:exitstatus => false)
     end
 
@@ -940,7 +940,7 @@ G
           end
         R
 
-        bundled_app("Gemfile.lock").should_not exist
+        expect(bundled_app("Gemfile.lock")).not_to exist
         should_be_engine_version_incorrect(:exitstatus => false)
       end
     end
@@ -974,8 +974,8 @@ G
       G
 
       bundle "outdated"
-      out.should include("activesupport (3.0 > 2.3.5)")
-      out.should include("foo (1.0")
+      expect(out).to include("activesupport (3.0 > 2.3.5)")
+      expect(out).to include("foo (1.0")
     end
 
     it "returns list of outdated gems when the ruby version matches for any engine" do
@@ -994,8 +994,8 @@ G
         G
 
         bundle "outdated"
-        out.should include("activesupport (3.0 > 2.3.5)")
-        out.should include("foo (1.0")
+        expect(out).to include("activesupport (3.0 > 2.3.5)")
+        expect(out).to include("foo (1.0")
       end
     end
 

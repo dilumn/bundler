@@ -51,7 +51,7 @@ module Gem
     end
 
     def git_version
-      if @loaded_from && File.exist?(File.join(full_gem_path, ".git"))
+      if loaded_from && File.exist?(File.join(full_gem_path, ".git"))
         sha = Dir.chdir(full_gem_path){ `git rev-parse HEAD`.strip }
         " #{sha[0..6]}"
       end
@@ -133,15 +133,16 @@ module Gem
   end
 
   class Platform
-    JAVA  = Gem::Platform.new('java')
-    MSWIN = Gem::Platform.new('mswin32')
-    MINGW = Gem::Platform.new('x86-mingw32')
+    JAVA  = Gem::Platform.new('java') unless defined?(JAVA)
+    MSWIN = Gem::Platform.new('mswin32') unless defined?(MSWIN)
+    MINGW = Gem::Platform.new('x86-mingw32') unless defined?(MINGW)
 
     undef_method :hash if method_defined? :hash
     def hash
       @cpu.hash ^ @os.hash ^ @version.hash
     end
 
+    undef_method :eql? if method_defined? :eql?
     alias eql? ==
   end
 end
