@@ -101,6 +101,14 @@ module Spec
         end
 
         build_gem "platform_specific" do |s|
+          s.platform = "x86-mingw32"
+        end
+
+        build_gem "platform_specific" do |s|
+          s.platform = "x64-mingw32"
+        end
+
+        build_gem "platform_specific" do |s|
           s.platform = "x86-darwin-100"
           s.write "lib/platform_specific.rb", "PLATFORM_SPECIFIC = '1.0.0 x86-darwin-100'"
         end
@@ -182,6 +190,7 @@ module Spec
         end
 
         build_gem "very_simple_binary", &:add_c_extension
+        build_gem "simple_binary", &:add_c_extension
 
         build_gem "bundler", "0.9" do |s|
           s.executables = "bundle"

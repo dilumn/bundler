@@ -76,6 +76,7 @@ module Bundler
       @lockfile_contents      = String.new
       @locked_bundler_version = nil
       @locked_ruby_version    = nil
+      @locked_specs_incomplete_for_platform = false
 
       if lockfile && File.exist?(lockfile)
         @lockfile_contents = Bundler.read_file(lockfile)
@@ -112,7 +113,7 @@ module Bundler
       end
       @unlocking ||= @unlock[:ruby] ||= (!@locked_ruby_version ^ !@ruby_version)
 
-      add_current_platform unless Bundler.frozen?
+      add_current_platform unless Bundler.frozen_bundle?
 
       converge_path_sources_to_gemspec_sources
       @path_changes = converge_paths
@@ -244,7 +245,7 @@ module Bundler
     def resolve
       @resolve ||= begin
         last_resolve = converge_locked_specs
-        if Bundler.frozen?
+        if Bundler.frozen_bundle?
           Bundler.ui.debug "Frozen, using resolution from the lockfile"
           last_resolve
         elsif !unlocking? && nothing_changed?
@@ -335,10 +336,10 @@ module Bundler
         end
       end
 
-      preserve_unknown_sections ||= !updating_major && (Bundler.frozen? || !(unlocking? || @unlocking_bundler))
+      preserve_unknown_sections ||= !updating_major && (Bundler.frozen_bundle? || !(unlocking? || @unlocking_bundler))
       return if lockfiles_equal?(@lockfile_contents, contents, preserve_unknown_sections)
 
-      if Bundler.frozen?
+      if Bundler.frozen_bundle?
         Bundler.ui.error "Cannot write a changed lockfile while frozen."
         return
       end
@@ -529,7 +530,7 @@ module Bundler
     private :sources
 
     def nothing_changed?
-      !@source_changes && !@dependency_changes && !@new_platform && !@path_changes && !@local_changes
+      !@source_changes && !@dependency_changes && !@new_platform && !@path_changes && !@local_changes && !@locked_specs_incomplete_for_platform
     end
 
     def unlocking?
@@ -556,6 +557,7 @@ module Bundler
         [@new_platform, "you added a new platform to your gemfile"],
         [@path_changes, "the gemspecs for path gems changed"],
         [@local_changes, "the gemspecs for git local gems changed"],
+        [@locked_specs_incomplete_for_platform, "the lockfile does not have all gems needed for the current platform"],
       ].select(&:first).map(&:last).join(", ")
     end
 
@@ -681,7 +683,7 @@ module Bundler
     end
 
     def converge_dependencies
-      frozen = Bundler.frozen?
+      frozen = Bundler.frozen_bundle?
       (@dependencies + @locked_deps.values).each do |dep|
         locked_source = @locked_deps[dep.name]
         # This is to make sure that if bundler is installing in deployment mode and
@@ -802,7 +804,9 @@ module Bundler
       end
 
       resolve = SpecSet.new(converged)
-      resolve = resolve.for(expand_dependencies(deps, true), @unlock[:gems], false, false, false)
+      expanded_deps = expand_dependencies(deps, true)
+      @locked_specs_incomplete_for_platform = !resolve.for(expanded_deps, @unlock[:gems], true, true)
+      resolve = resolve.for(expanded_deps, @unlock[:gems], false, false, false)
       diff    = nil
 
       # Now, we unlock any sources that do not have anymore gems pinned to it

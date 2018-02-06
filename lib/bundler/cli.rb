@@ -233,6 +233,8 @@ module Bundler
     D
     method_option "full-index", :type => :boolean, :banner =>
       "Fall back to using the single-file index of all gems"
+    method_option "gemfile", :type => :string, :banner =>
+      "Use the specified gemfile instead of Gemfile"
     method_option "group", :aliases => "-g", :type => :array, :banner =>
       "Update a specific group"
     method_option "jobs", :aliases => "-j", :type => :numeric, :banner =>
@@ -285,6 +287,7 @@ module Bundler
     if Bundler.feature_flag.list_command?
       desc "list", "List all gems in the bundle"
       method_option "name-only", :type => :boolean, :banner => "print only the gem names"
+      method_option "paths", :type => :boolean, :banner => "print the path to each gem in the bundle"
       def list
         require "bundler/cli/list"
         List.new(options).run
@@ -717,6 +720,8 @@ module Bundler
 
       command_name = current_command.name
       return if PARSEABLE_COMMANDS.include?(command_name)
+
+      return unless SharedHelpers.md5_available?
 
       latest = Fetcher::CompactIndex.
                new(nil, Source::Rubygems::Remote.new(URI("https://rubygems.org")), nil).
