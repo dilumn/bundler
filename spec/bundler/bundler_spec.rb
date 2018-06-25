@@ -190,6 +190,34 @@ EOF
     end
   end
 
+  describe "#mkdir_p" do
+    it "creates a folder at the given path" do
+      install_gemfile <<-G
+        source "file://#{gem_repo1}"
+        gem "rack"
+      G
+
+      Bundler.mkdir_p(bundled_app.join("foo", "bar"))
+      expect(bundled_app.join("foo", "bar")).to exist
+    end
+
+    context "when mkdir_p requires sudo" do
+      it "creates a new folder using sudo" do
+        expect(Bundler).to receive(:requires_sudo?).and_return(true)
+        expect(Bundler).to receive(:sudo).and_return true
+        Bundler.mkdir_p(bundled_app.join("foo"))
+      end
+    end
+
+    context "with :no_sudo option" do
+      it "forces mkdir_p to not use sudo" do
+        expect(Bundler).to receive(:requires_sudo?).and_return(true)
+        expect(Bundler).to_not receive(:sudo)
+        Bundler.mkdir_p(bundled_app.join("foo"), :no_sudo => true)
+      end
+    end
+  end
+
   describe "#user_home" do
     context "home directory is set" do
       it "should return the user home" do
@@ -198,6 +226,57 @@ EOF
         allow(File).to receive(:directory?).with(path).and_return true
         allow(File).to receive(:writable?).with(path).and_return true
         expect(Bundler.user_home).to eq(Pathname(path))
+      end
+
+      context "is not a directory" do
+        it "should issue a warning and return a temporary user home" do
+          path = "/home/oggy"
+          allow(Bundler.rubygems).to receive(:user_home).and_return(path)
+          allow(File).to receive(:directory?).with(path).and_return false
+          allow(Etc).to receive(:getlogin).and_return("USER")
+          allow(Dir).to receive(:tmpdir).and_return("/TMP")
+          allow(FileTest).to receive(:exist?).with("/TMP/bundler/home").and_return(true)
+          expect(FileUtils).to receive(:mkpath).with("/TMP/bundler/home/USER")
+          message = <<EOF
+`/home/oggy` is not a directory.
+Bundler will use `/TMP/bundler/home/USER' as your home directory temporarily.
+EOF
+          expect(Bundler.ui).to receive(:warn).with(message)
+          expect(Bundler.user_home).to eq(Pathname("/TMP/bundler/home/USER"))
+        end
+      end
+
+      context "is not writable" do
+        let(:path) { "/home/oggy" }
+        let(:dotbundle) { "/home/oggy/.bundle" }
+
+        it "should issue a warning and return a temporary user home" do
+          allow(Bundler.rubygems).to receive(:user_home).and_return(path)
+          allow(File).to receive(:directory?).with(path).and_return true
+          allow(File).to receive(:writable?).with(path).and_return false
+          allow(File).to receive(:directory?).with(dotbundle).and_return false
+          allow(Etc).to receive(:getlogin).and_return("USER")
+          allow(Dir).to receive(:tmpdir).and_return("/TMP")
+          allow(FileTest).to receive(:exist?).with("/TMP/bundler/home").and_return(true)
+          expect(FileUtils).to receive(:mkpath).with("/TMP/bundler/home/USER")
+          message = <<EOF
+`/home/oggy` is not writable.
+Bundler will use `/TMP/bundler/home/USER' as your home directory temporarily.
+EOF
+          expect(Bundler.ui).to receive(:warn).with(message)
+          expect(Bundler.user_home).to eq(Pathname("/TMP/bundler/home/USER"))
+        end
+
+        context ".bundle exists and have correct permissions" do
+          it "should return the user home" do
+            allow(Bundler.rubygems).to receive(:user_home).and_return(path)
+            allow(File).to receive(:directory?).with(path).and_return true
+            allow(File).to receive(:writable?).with(path).and_return false
+            allow(File).to receive(:directory?).with(dotbundle).and_return true
+            allow(File).to receive(:writable?).with(dotbundle).and_return true
+            expect(Bundler.user_home).to eq(Pathname(path))
+          end
+        end
       end
     end
 

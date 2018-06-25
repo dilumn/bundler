@@ -159,12 +159,13 @@ module Bundler
     def user_home
       @user_home ||= begin
         home = Bundler.rubygems.user_home
+        bundle_home = home ? File.join(home, ".bundle") : nil
 
         warning = if home.nil?
           "Your home directory is not set."
         elsif !File.directory?(home)
           "`#{home}` is not a directory."
-        elsif !File.writable?(home)
+        elsif !File.writable?(home) && (!File.directory?(bundle_home) || !File.writable?(bundle_home))
           "`#{home}` is not writable."
         end
 
@@ -373,8 +374,8 @@ EOF
       @requires_sudo = settings.allow_sudo? && sudo_present && sudo_needed
     end
 
-    def mkdir_p(path)
-      if requires_sudo?
+    def mkdir_p(path, options = {})
+      if requires_sudo? && !options[:no_sudo]
         sudo "mkdir -p '#{path}'" unless File.exist?(path)
       else
         SharedHelpers.filesystem_access(path, :write) do |p|
@@ -421,7 +422,9 @@ EOF
     end
 
     def read_file(file)
-      File.open(file, "rb", &:read)
+      SharedHelpers.filesystem_access(file, :read) do
+        File.open(file, "rb", &:read)
+      end
     end
 
     def load_marshal(data)

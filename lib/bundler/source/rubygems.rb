@@ -144,7 +144,7 @@ module Bundler
             bin_path     = Bundler.system_bindir
           end
 
-          Bundler.mkdir_p bin_path unless spec.executables.empty? || Bundler.rubygems.provides?(">= 2.7.5")
+          Bundler.mkdir_p bin_path, :no_sudo => true unless spec.executables.empty? || Bundler.rubygems.provides?(">= 2.7.5")
 
           installed_spec = nil
           Bundler.rubygems.preserve_paths do
@@ -344,7 +344,11 @@ module Bundler
       end
 
       def remove_auth(remote)
-        remote.dup.tap {|uri| uri.user = uri.password = nil }.to_s
+        if remote.user || remote.password
+          remote.dup.tap {|uri| uri.user = uri.password = nil }.to_s
+        else
+          remote.to_s
+        end
       end
 
       def installed_specs
