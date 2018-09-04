@@ -170,6 +170,7 @@ module Bundler
         end
 
         if warning
+          Kernel.send(:require, "etc")
           user_home = tmp_home_path(Etc.getlogin, warning)
           Bundler.ui.warn "#{warning}\nBundler will use `#{user_home}' as your home directory temporarily.\n"
           user_home
@@ -423,7 +424,7 @@ EOF
 
     def read_file(file)
       SharedHelpers.filesystem_access(file, :read) do
-        File.open(file, "rb", &:read)
+        File.open(file, "r:UTF-8", &:read)
       end
     end
 

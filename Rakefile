@@ -56,7 +56,7 @@ namespace :spec do
         sh %(#{Gem.ruby} -S gem #{gem_install_command})
       end
     else
-      gem_install_command = "install --no-ri --no-rdoc --conservative " + deps.sort_by {|name, _| name }.map do |name, version|
+      gem_install_command = "install --no-document --conservative " + deps.sort_by {|name, _| name }.map do |name, version|
         "'#{name}:#{version}'"
       end.join(" ")
       sh %(#{Gem.ruby} -S gem #{gem_install_command})
@@ -147,7 +147,7 @@ begin
       rubyopt = ENV["RUBYOPT"]
       # When editing this list, also edit .travis.yml!
       branches = %w[master]
-      releases = %w[v1.3.6 v1.3.7 v1.4.2 v1.5.3 v1.6.2 v1.7.2 v1.8.29 v2.0.14 v2.1.11 v2.2.5 v2.4.8 v2.5.2 v2.6.8 v2.6.14 v2.7.4]
+      releases = %w[v2.5.2 v2.6.14 v2.7.7]
       (branches + releases).each do |rg|
         desc "Run specs with RubyGems #{rg}"
         RSpec::Core::RakeTask.new(rg) do |t|

@@ -198,10 +198,12 @@ module Bundler
     def pretty_dependency(dep, print_source = false)
       msg = String.new(dep.name)
       msg << " (#{dep.requirement})" unless dep.requirement == Gem::Requirement.default
+
       if dep.is_a?(Bundler::Dependency)
         platform_string = dep.platforms.join(", ")
         msg << " " << platform_string if !platform_string.empty? && platform_string != Gem::Platform::RUBY
       end
+
       msg << " from the `#{dep.source}` source" if print_source && dep.source
       msg
     end
@@ -222,6 +224,10 @@ module Bundler
     def digest(name)
       require "digest"
       Digest(name)
+    end
+
+    def write_to_gemfile(gemfile_path, contents)
+      filesystem_access(gemfile_path) {|g| File.open(g, "w") {|file| file.puts contents } }
     end
 
   private
@@ -325,7 +331,7 @@ module Bundler
     end
 
     def bundler_ruby_lib
-      File.expand_path("../..", __FILE__)
+      resolve_path File.expand_path("../..", __FILE__)
     end
 
     def clean_load_path
@@ -337,10 +343,17 @@ module Bundler
       loaded_gem_paths = Bundler.rubygems.loaded_gem_paths
 
       $LOAD_PATH.reject! do |p|
-        next if File.expand_path(p).start_with?(bundler_lib)
+        next if resolve_path(p).start_with?(bundler_lib)
         loaded_gem_paths.delete(p)
       end
       $LOAD_PATH.uniq!
+    end
+
+    def resolve_path(path)
+      expanded = File.expand_path(path)
+      return expanded unless File.respond_to?(:realpath) && File.exist?(expanded)
+
+      File.realpath(expanded)
     end
 
     def prints_major_deprecations?
