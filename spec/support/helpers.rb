@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "open3"
+
 module Spec
   module Helpers
     def reset!
@@ -98,9 +100,6 @@ module Spec
     def bundle(cmd, options = {})
       with_sudo = options.delete(:sudo)
       sudo = with_sudo == :preserve_env ? "sudo -E" : "sudo" if with_sudo
-
-      no_color = options.delete("no-color") { cmd.to_s !~ /\A(e|ex|exe|exec|conf|confi|config)(\s|\z)/ }
-      options["no-color"] = true if no_color
 
       bundle_bin = options.delete("bundle_bin") || bindir.join("bundle")
 
